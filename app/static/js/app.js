@@ -64,6 +64,15 @@ document.querySelectorAll("table.accounts tbody tr[data-id]").forEach((row) => {
     const r = await postForm(`/api/accounts/${id}/validate`, new FormData());
     if (r.ok) location.reload();
   });
+  row.querySelector(".row-relogin")?.addEventListener("click", async (e) => {
+    const btn = e.target;
+    btn.disabled = true; btn.textContent = "…";
+    const resp = await fetch(`/api/accounts/${id}/login-by-mail`, { method: "POST" });
+    const data = await resp.json().catch(() => ({}));
+    btn.disabled = false; btn.textContent = "Login";
+    if (data.ok) location.reload();
+    else alert("Login failed: " + (data.error || resp.status));
+  });
   row.querySelector(".row-delete")?.addEventListener("click", async () => {
     if (!confirm("Remove this account?")) return;
     const resp = await fetch(`/api/accounts/${id}`, { method: "DELETE" });

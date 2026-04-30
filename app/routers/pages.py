@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from app.database import discords, proxies as proxies_coll
+from app.database import discords, proxies as proxies_coll, topics
 from app.security import require_login
 
 router = APIRouter()
@@ -31,6 +31,7 @@ async def dashboard(
                 "joined_voice": acc.get("joined_voice", False),
                 "joined_stream": acc.get("joined_stream", False),
                 "has_2fa": acc.get("two_fa_secret") is not None,
+                "is_donor": acc.get("is_donor", False),
             }
         )
 
@@ -94,10 +95,23 @@ async def utils_page(
                 "token_valid": acc.get("token_valid", False),
                 "has_2fa": acc.get("two_fa_secret") is not None,
                 "joined_server": acc.get("joined_server", False),
+                "is_donor": acc.get("is_donor", False),
             }
         )
+
+    monitored_topics: list[dict] = []
+    async for t in topics().find().sort("_id", -1):
+        monitored_topics.append(
+            {"id": str(t["_id"]), "channel_id": t["channel_id"], "label": t.get("label")}
+        )
+
     return templates.TemplateResponse(
         request,
         "utils.html",
-        {"user": user, "active": "utils", "accounts": accounts},
+        {
+            "user": user,
+            "active": "utils",
+            "accounts": accounts,
+            "monitored_topics": monitored_topics,
+        },
     )

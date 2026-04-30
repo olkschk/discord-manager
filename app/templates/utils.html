@@ -5,6 +5,61 @@
   {% include "_topbar.html" %}
 
   <main class="page utils-page">
+    <!-- Monitor -->
+    <section>
+      <div class="section__head">
+        <span class="section__title">Monitor</span>
+        <span class="section__sub">Donor + topic watcher</span>
+      </div>
+
+      <div class="split">
+        <article class="panel">
+          <h3 class="panel__title">Donor account</h3>
+          <p class="panel__hint">Drives the topic monitor. Pick one valid-token account.</p>
+          <div class="rowlist" id="donorList">
+            {% for a in accounts %}
+            <label class="rowlist__row">
+              <input type="radio" name="donor" class="donor-radio" value="{{ a.id }}" {% if a.is_donor %}checked{% endif %} {% if not a.token_valid %}disabled{% endif %} />
+              <span class="rowlist__primary">{{ a.email }}</span>
+              <span class="rowlist__meta">{{ a.username }}</span>
+              <span class="status {% if a.token_valid %}ok{% else %}muted{% endif %}">{{ "valid" if a.token_valid else "invalid" }}</span>
+            </label>
+            {% else %}
+            <p class="muted">No accounts yet.</p>
+            {% endfor %}
+          </div>
+          <div style="display:flex; justify-content: space-between; gap: var(--sp-md);">
+            <output id="donorResult" class="result"></output>
+            <div style="display:flex; gap: var(--sp-sm);">
+              <button type="button" id="donorClearBtn" class="small">Clear</button>
+              <button type="button" id="donorSaveBtn" class="primary">Save donor</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h3 class="panel__title">Monitored topics</h3>
+          <p class="panel__hint">Channel IDs the donor pulls last 100 messages from each cycle.</p>
+          <form id="topicAddForm" style="display:flex; gap: var(--sp-sm);">
+            <input type="text" id="topicChannel" placeholder="123456789012345678" spellcheck="false" required />
+            <input type="text" id="topicLabel" placeholder="Label (optional)" />
+            <button type="submit" class="primary">Add</button>
+          </form>
+          <ul class="topics-list" id="topicsList">
+            {% for t in monitored_topics %}
+            <li data-id="{{ t.id }}">
+              <code>{{ t.channel_id }}</code>
+              <span class="topic-label">{{ t.label or '' }}</span>
+              <button type="button" class="small danger topic-del">Remove</button>
+            </li>
+            {% else %}
+            <li class="muted">No topics registered.</li>
+            {% endfor %}
+          </ul>
+        </article>
+      </div>
+    </section>
+
     <!-- Identity -->
     <section>
       <div class="section__head">
@@ -187,6 +242,55 @@ document.querySelectorAll(".mfa-code-btn").forEach(btn => {
     } else {
       out.textContent = "error";
     }
+  });
+});
+
+// Monitor: donor selection
+document.getElementById("donorSaveBtn")?.addEventListener("click", async () => {
+  const checked = document.querySelector(".donor-radio:checked");
+  const out = document.getElementById("donorResult");
+  if (!checked) return setResult(out, false, "Pick an account first");
+  const r = await fetch("/api/monitor/donor", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_id: checked.value }),
+  });
+  if (r.ok) { setResult(out, true, "Donor saved"); setTimeout(() => location.reload(), 600); }
+  else setResult(out, false, `Error ${r.status}`);
+});
+document.getElementById("donorClearBtn")?.addEventListener("click", async () => {
+  if (!confirm("Clear donor? Topic monitor will pause.")) return;
+  const r = await fetch("/api/monitor/donor", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_id: null }),
+  });
+  if (r.ok) location.reload();
+});
+
+// Monitor: topics
+document.getElementById("topicAddForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const channel = document.getElementById("topicChannel").value.trim();
+  const label = document.getElementById("topicLabel").value.trim() || null;
+  if (!channel) return;
+  const r = await fetch("/api/monitor/topics", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ channel_id: channel, label }),
+  });
+  if (r.ok) location.reload();
+  else {
+    const data = await r.json().catch(() => ({}));
+    alert("Add failed: " + (data.detail || r.status));
+  }
+});
+document.querySelectorAll(".topic-del").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const li = btn.closest("[data-id]");
+    if (!confirm("Remove topic from monitor?")) return;
+    const r = await fetch(`/api/monitor/topics/${li.dataset.id}`, { method: "DELETE" });
+    if (r.ok) li.remove();
   });
 });
 </script>

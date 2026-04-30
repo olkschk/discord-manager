@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
+    monitor_enabled: bool = True
+    monitor_topic_interval: int = 60
+    monitor_dm_interval: int = 300
+
 
 @lru_cache
 def get_settings() -> Settings:

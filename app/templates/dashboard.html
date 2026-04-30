@@ -96,7 +96,10 @@
           <tbody>
             {% for a in accounts %}
             <tr data-id="{{ a.id }}">
-              <td class="email">{{ a.email }}</td>
+              <td class="email">
+                {% if a.is_donor %}<span class="donor-badge" title="Donor — drives topic monitor">DONOR</span>{% endif %}
+                {{ a.email }}
+              </td>
               <td>{{ a.username }}</td>
               <td>{{ a.name }}</td>
               <td>{% if a.has_proxy %}<span class="dot ok" title="Assigned"></span>{% else %}<span class="dot" title="None"></span>{% endif %}</td>
@@ -107,6 +110,7 @@
               <td>{% if a.joined_stream %}<span class="dot ok"></span>{% else %}<span class="dot"></span>{% endif %}</td>
               <td class="row-actions">
                 <button type="button" class="small row-validate">Validate</button>
+                <button type="button" class="small row-relogin">Login</button>
                 <button type="button" class="small danger row-delete">Remove</button>
               </td>
             </tr>

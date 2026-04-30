@@ -11,7 +11,17 @@ from starlette.middleware.sessions import SessionMiddleware
 from app import database
 from app.config import get_settings
 from app.logging_config import configure_logging
-from app.routers import accounts, auth, chat, pages, proxies, templates as templates_router, utils
+from app.routers import (
+    accounts,
+    auth,
+    chat,
+    monitor as monitor_router,
+    pages,
+    proxies,
+    templates as templates_router,
+    utils,
+)
+from app.services import monitor as monitor_service
 
 
 @asynccontextmanager
@@ -19,9 +29,11 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(settings.log_level)
     await database.connect()
+    monitor_service.start()
     try:
         yield
     finally:
+        await monitor_service.stop()
         await database.disconnect()
 
 
@@ -51,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router)
     app.include_router(templates_router.router)
     app.include_router(utils.router)
+    app.include_router(monitor_router.router)
 
     return app
 

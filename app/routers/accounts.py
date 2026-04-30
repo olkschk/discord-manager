@@ -10,7 +10,7 @@ from pymongo.errors import DuplicateKeyError
 from app.database import discords, mails, proxies as proxies_coll
 from app.models.account import parse_account_line
 from app.security import decrypt, encrypt, require_login
-from app.services.discord_api import build_proxy_url, validate_token
+from app.services.discord_api import build_proxy_url, login_with_password, mfa_totp, validate_token
 
 router = APIRouter(
     prefix="/api/accounts",
@@ -121,6 +121,7 @@ async def validate_all() -> dict:
         update: dict = {"token_valid": is_valid}
         if is_valid and data:
             update["username"] = data.get("username")
+            update["discord_user_id"] = data.get("id")
             if not acc.get("name"):
                 update["name"] = data.get("global_name") or data.get("username")
         await discords().update_one({"_id": acc["_id"]}, {"$set": update})
@@ -183,3 +184,70 @@ async def delete_account(account_id: str) -> dict:
     await discords().delete_one({"_id": ObjectId(account_id)})
     logger.info("Deleted account %s (email=%s)", account_id, acc.get("email"))
     return {"deleted": True}
+
+
+@router.post("/{account_id}/login-by-mail")
+async def login_by_mail(account_id: str) -> dict:
+    """Re-login with stored email+password. If MFA is challenged and we hold the
+    2FA secret, complete the TOTP exchange. Captcha + email-verification flows
+    are *not* implemented — those return an error and require manual recovery.
+    """
+    import pyotp
+
+    if not ObjectId.is_valid(account_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
+    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    if acc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+
+    try:
+        password = decrypt(acc["password"])
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, "Password ciphertext unreadable"
+        )
+
+    proxy_url: str | None = None
+    if acc.get("proxy_id"):
+        proxy = await proxies_coll().find_one({"_id": acc["proxy_id"]})
+        if proxy is not None:
+            try:
+                proxy_url = build_proxy_url(
+                    proxy["ip"], proxy["port"], proxy["login"], decrypt(proxy["password"])
+                )
+            except ValueError:
+                proxy_url = None
+
+    out = await login_with_password(acc["email"], password, proxy_url=proxy_url)
+    if out is None:
+        return {"ok": False, "error": "request_failed"}
+
+    token = out.get("token")
+
+    if not token and out.get("mfa"):
+        ticket = out.get("ticket")
+        if not ticket:
+            return {"ok": False, "error": "mfa_no_ticket"}
+        if not acc.get("two_fa_secret"):
+            return {"ok": False, "error": "mfa_required_but_no_secret"}
+        try:
+            secret = decrypt(acc["two_fa_secret"])
+        except ValueError:
+            return {"ok": False, "error": "two_fa_secret_unreadable"}
+        code = pyotp.TOTP(secret).now()
+        mfa_out = await mfa_totp(ticket, code, proxy_url=proxy_url)
+        if mfa_out is None:
+            return {"ok": False, "error": "mfa_failed"}
+        token = mfa_out.get("token")
+
+    if not token:
+        if out.get("captcha_key"):
+            return {"ok": False, "error": "captcha_required"}
+        return {"ok": False, "error": "unknown"}
+
+    await discords().update_one(
+        {"_id": ObjectId(account_id)},
+        {"$set": {"discord_token": encrypt(token), "token_valid": True}},
+    )
+    logger.info("Re-logged in %s via /auth/login", acc.get("email"))
+    return {"ok": True}

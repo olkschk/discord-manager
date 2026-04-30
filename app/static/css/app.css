@@ -681,3 +681,55 @@ table.accounts .row-actions { display: flex; gap: var(--sp-xs); justify-content:
 .mfa-code { font-family: var(--font-mono); font-size: 14px; letter-spacing: 0.15em; color: var(--success); min-width: 80px; text-align: right; }
 .mfa-code.muted { color: var(--text-disabled); }
 .mfa-code.ok { color: var(--success); }
+
+/* Donor badge in dashboard table */
+.donor-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 1px 6px;
+  margin-right: var(--sp-sm);
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+/* Monitor: topics list */
+.topics-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sp-xs);
+}
+.topics-list li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--sp-md);
+  align-items: center;
+  background: var(--black);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: var(--sp-sm) var(--sp-md);
+}
+.topics-list li.muted {
+  display: block;
+  text-align: center;
+  color: var(--text-disabled);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.topics-list code { font-size: 11px; color: var(--text-display); }
+.topic-label { color: var(--text-secondary); font-size: 11px; }
+
+/* Donor radio rowlist (utils Monitor section) — narrower than checkbox rowlist */
+.rowlist__row input[type="radio"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}

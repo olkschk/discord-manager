@@ -74,11 +74,20 @@ def templates() -> "AsyncIOMotorCollection":
     return db()["templates"]
 
 
+def topics() -> "AsyncIOMotorCollection":
+    return db()["topics"]
+
+
 async def _ensure_indexes() -> None:
     await mails().create_index("email", unique=True)
     await discords().create_index("email", unique=True)
     await proxies().create_index([("ip", 1), ("port", 1)], unique=True)
     await users().create_index("login", unique=True)
     await messages().create_index([("topic", 1), ("timestamp", -1)])
+    await messages().create_index("discord_message_id", sparse=True)
     await private_messages().create_index([("to", 1), ("is_read", 1)])
+    await private_messages().create_index(
+        [("to", 1), ("discord_message_id", 1)], unique=True, sparse=True
+    )
+    await topics().create_index("channel_id", unique=True)
     logger.debug("MongoDB indexes ensured")

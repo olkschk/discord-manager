@@ -182,6 +182,90 @@ async def join_invite(
         return None
 
 
+async def login_with_password(
+    email: str,
+    password: str,
+    *,
+    captcha_key: str | None = None,
+    proxy_url: str | None = None,
+) -> dict[str, Any] | None:
+    """POST /auth/login. Returns Discord's response dict (token, ticket, captcha info)
+    or None on transport failure. Does NOT require an existing token.
+
+    Possible result shapes (HTTP 200 or 400):
+    - {"token": "...", "user_id": "..."}                 → success
+    - {"mfa": True, "ticket": "...", "token": null}      → TOTP required
+    - {"captcha_key": [...], "captcha_sitekey": "..."}   → captcha required (not solvable here)
+    """
+    settings = get_settings()
+    url = f"{settings.discord_api_base}/auth/login"
+    payload: dict[str, Any] = {
+        "login": email,
+        "password": password,
+        "undelete": False,
+        "login_source": None,
+        "gift_code_sku_id": None,
+    }
+    if captcha_key:
+        payload["captcha_key"] = captcha_key
+
+    headers = {
+        "User-Agent": settings.discord_user_agent,
+        "Content-Type": "application/json",
+    }
+    timeout = ClientTimeout(total=settings.discord_http_timeout)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, headers=headers, json=payload, proxy=proxy_url) as resp:
+                if resp.status not in (200, 400):
+                    logger.info("login_with_password unexpected status=%s", resp.status)
+                    return None
+                body = await resp.json()
+                if isinstance(body, dict):
+                    logger.info(
+                        "login_with_password status=%s keys=%s",
+                        resp.status,
+                        list(body.keys()),
+                    )
+                    return body
+                return None
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("login_with_password network error: %s", exc)
+        return None
+
+
+async def mfa_totp(
+    ticket: str,
+    code: str,
+    *,
+    proxy_url: str | None = None,
+) -> dict[str, Any] | None:
+    """POST /auth/mfa/totp — exchange MFA ticket + TOTP code for an auth token."""
+    settings = get_settings()
+    url = f"{settings.discord_api_base}/auth/mfa/totp"
+    payload = {
+        "code": code,
+        "ticket": ticket,
+        "login_source": None,
+        "gift_code_sku_id": None,
+    }
+    headers = {
+        "User-Agent": settings.discord_user_agent,
+        "Content-Type": "application/json",
+    }
+    timeout = ClientTimeout(total=settings.discord_http_timeout)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, headers=headers, json=payload, proxy=proxy_url) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                logger.info("mfa_totp failed status=%s", resp.status)
+                return None
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("mfa_totp network error: %s", exc)
+        return None
+
+
 async def enable_mfa(
     token: str,
     secret: str,
