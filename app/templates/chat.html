@@ -58,7 +58,13 @@
             <button type="button" id="cancelReply">×</button>
           </span>
         </div>
-        <textarea id="sendText" rows="2" placeholder="Write a message…" maxlength="2000" required></textarea>
+        <textarea id="sendText" rows="2" placeholder="Write a message…" maxlength="2000"></textarea>
+        <div class="send__row">
+          <label class="file-pick">
+            <input type="file" id="sendFile" accept="image/*,video/*,audio/*,application/*" />
+            <span id="fileLabel">Attach file (≤ 8 MB)</span>
+          </label>
+        </div>
         <div class="send__row send__actions">
           <label class="dup-toggle">
             <input type="checkbox" id="duplicateToggle" />
@@ -155,28 +161,42 @@ duplicateToggle.addEventListener("change", () => {
 
 cancelReplyBtn.addEventListener("click", () => setReply(null));
 
+// File-picker label feedback
+const fileInput = document.getElementById("sendFile");
+const fileLabel = document.getElementById("fileLabel");
+fileInput.addEventListener("change", () => {
+  const f = fileInput.files[0];
+  fileLabel.textContent = f ? `${f.name} · ${(f.size / 1024).toFixed(1)} kB` : "Attach file (≤ 8 MB)";
+});
+
 sendForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const accountId = accountSelect.value;
   const text = sendText.value.trim();
-  if (!accountId || !text) return;
+  const file = fileInput.files[0] || null;
+  if (!accountId) return;
+  if (!text && !file) return;
 
   sendResult.classList.remove("ok", "err");
   sendResult.textContent = "Sending…";
 
-  let resp, body;
+  let resp;
   if (duplicateToggle.checked) {
+    if (file) {
+      sendResult.classList.add("err");
+      sendResult.textContent = "File + duplicate not supported (would re-upload N×)";
+      return;
+    }
     const channels = duplicateChannels.value.split("\n").map(s => s.trim()).filter(Boolean);
     if (!channels.length) {
       sendResult.textContent = "Add at least one channel id";
       sendResult.classList.add("err");
       return;
     }
-    body = { account_id: accountId, channel_ids: channels, content: text };
     resp = await fetch("/api/chat/duplicate", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(body),
+      body: JSON.stringify({ account_id: accountId, channel_ids: channels, content: text }),
     });
   } else {
     if (!currentTopic) {
@@ -184,18 +204,30 @@ sendForm.addEventListener("submit", async (e) => {
       sendResult.classList.add("err");
       return;
     }
-    body = { account_id: accountId, channel_id: currentTopic, content: text, reply_to: replyTo };
-    resp = await fetch("/api/chat/send", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(body),
-    });
+    if (file) {
+      // Multipart path
+      const fd = new FormData();
+      fd.append("account_id", accountId);
+      fd.append("channel_id", currentTopic);
+      fd.append("content", text);
+      if (replyTo) fd.append("reply_to", replyTo);
+      fd.append("files", file, file.name);
+      resp = await fetch("/api/chat/send-with-file", { method: "POST", body: fd });
+    } else {
+      resp = await fetch("/api/chat/send", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ account_id: accountId, channel_id: currentTopic, content: text, reply_to: replyTo }),
+      });
+    }
   }
-  const data = await resp.json();
+  const data = await resp.json().catch(() => ({}));
   if (resp.ok && (data.sent || (data.results || []).every(r => r.ok))) {
     sendResult.classList.add("ok");
-    sendResult.textContent = duplicateToggle.checked ? `Sent to ${data.results.length}` : "Sent";
+    sendResult.textContent = duplicateToggle.checked ? `Sent to ${data.results.length}` : (file ? `Sent · ${data.files} file(s)` : "Sent");
     sendText.value = "";
+    fileInput.value = "";
+    fileLabel.textContent = "Attach file (≤ 8 MB)";
     setReply(null);
   } else {
     sendResult.classList.add("err");

@@ -58,8 +58,82 @@ document.getElementById("validateAllBtn")?.addEventListener("click", async (e) =
   else alert("Validate failed: " + r.status);
 });
 
+// ── Inbox modal ──────────────────────────────────────────────────────────
+const inboxModal = document.getElementById("inboxModal");
+const inboxBody = document.getElementById("inboxBody");
+const inboxTitle = document.getElementById("inboxTitle");
+let inboxAccountId = null;
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function renderInbox(data) {
+  if (!data.ok) {
+    const note =
+      data.error === "no_imap_host" ? `No IMAP host mapped for "${data.domain || "?"}". Set IMAP_DEFAULT_HOST in .env or extend PROVIDER_HOSTS.` :
+      data.error?.startsWith("imap_login_failed") ? "IMAP login failed — check the email password is correct." :
+      data.error;
+    inboxBody.innerHTML = `<p class="messages__empty">${escapeHtml(note)}</p>`;
+    return;
+  }
+  if (!data.entries.length) {
+    inboxBody.innerHTML = `<p class="messages__empty">No matching messages</p>`;
+    return;
+  }
+  inboxBody.innerHTML = data.entries.map(e => `
+    <article class="msg">
+      <header class="msg__head">
+        <span class="msg__from">${escapeHtml(e.from_ || "?")}</span>
+        <span class="msg__time">${escapeHtml(e.date || "")}</span>
+        ${e.code ? `<button type="button" class="small primary inbox-copy" data-code="${escapeHtml(e.code)}">Copy ${escapeHtml(e.code)}</button>` : ""}
+      </header>
+      <p class="msg__text"><strong>${escapeHtml(e.subject || "(no subject)")}</strong></p>
+      <p class="msg__text" style="color: var(--text-secondary)">${escapeHtml(e.snippet || "")}</p>
+      ${e.link ? `<p class="msg__text"><a href="${escapeHtml(e.link)}" target="_blank" rel="noopener">Open verification link →</a></p>` : ""}
+    </article>
+  `).join("");
+  inboxBody.querySelectorAll(".inbox-copy").forEach(b => {
+    b.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(b.dataset.code);
+        b.textContent = "Copied ✓";
+        setTimeout(() => { b.textContent = `Copy ${b.dataset.code}`; }, 1500);
+      } catch { /* clipboard denied */ }
+    });
+  });
+}
+
+async function loadInbox() {
+  if (!inboxAccountId) return;
+  inboxBody.innerHTML = '<p class="messages__empty">Loading…</p>';
+  const r = await fetch(`/api/accounts/${inboxAccountId}/inbox?limit=10`);
+  const data = await r.json().catch(() => ({ ok: false, error: "parse_error" }));
+  renderInbox(data);
+}
+
+function openInbox(id, label) {
+  inboxAccountId = id;
+  inboxTitle.textContent = `Inbox · ${label || ""}`;
+  inboxModal.hidden = false;
+  loadInbox();
+}
+
+function closeInbox() {
+  inboxModal.hidden = true;
+  inboxAccountId = null;
+  inboxBody.innerHTML = "";
+}
+
+document.getElementById("inboxClose")?.addEventListener("click", closeInbox);
+document.getElementById("inboxRefresh")?.addEventListener("click", loadInbox);
+inboxModal?.addEventListener("click", (e) => { if (e.target === inboxModal) closeInbox(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !inboxModal.hidden) closeInbox(); });
+
+// ── Row actions ──────────────────────────────────────────────────────────
 document.querySelectorAll("table.accounts tbody tr[data-id]").forEach((row) => {
   const id = row.dataset.id;
+  const email = row.querySelector(".email")?.textContent.trim() || "";
   row.querySelector(".row-validate")?.addEventListener("click", async () => {
     const r = await postForm(`/api/accounts/${id}/validate`, new FormData());
     if (r.ok) location.reload();
@@ -73,6 +147,7 @@ document.querySelectorAll("table.accounts tbody tr[data-id]").forEach((row) => {
     if (data.ok) location.reload();
     else alert("Login failed: " + (data.error || resp.status));
   });
+  row.querySelector(".row-inbox")?.addEventListener("click", () => openInbox(id, email));
   row.querySelector(".row-delete")?.addEventListener("click", async () => {
     if (!confirm("Remove this account?")) return;
     const resp = await fetch(`/api/accounts/${id}`, { method: "DELETE" });

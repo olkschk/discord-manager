@@ -595,6 +595,25 @@ table.accounts .row-actions { display: flex; gap: var(--sp-xs); justify-content:
 }
 .dup-toggle input { width: auto; }
 
+/* File-picker chip on chat send form */
+.file-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border: 1px dashed var(--border-visible);
+  padding: 6px 10px;
+  border-radius: 4px;
+  transition: border-color 200ms var(--ease), color 200ms var(--ease);
+}
+.file-pick:hover { border-color: var(--text-display); color: var(--text-display); }
+.file-pick input[type="file"] { display: none; }
+
 .reply-chip {
   display: inline-flex;
   align-items: center;
@@ -732,4 +751,53 @@ table.accounts .row-actions { display: flex; gap: var(--sp-xs); justify-content:
   width: 14px;
   height: 14px;
   accent-color: var(--accent);
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   MODAL (inbox)
+   ────────────────────────────────────────────────────────────────────── */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+  padding: var(--sp-lg);
+}
+.modal[hidden] { display: none; }
+.modal__panel {
+  background: var(--surface);
+  border: 1px solid var(--border-visible);
+  border-radius: 4px;
+  width: 100%;
+  max-width: 720px;
+  max-height: 80vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+.modal__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--sp-md) var(--sp-lg);
+  border-bottom: 1px solid var(--border-visible);
+}
+.modal__body {
+  padding: var(--sp-lg);
+  overflow-y: auto;
+  display: grid;
+  gap: var(--sp-md);
+}
+.modal__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--sp-md) var(--sp-lg);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
 }

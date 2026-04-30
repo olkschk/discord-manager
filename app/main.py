@@ -15,6 +15,7 @@ from app.routers import (
     accounts,
     auth,
     chat,
+    inbox,
     monitor as monitor_router,
     pages,
     proxies,
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(templates_router.router)
     app.include_router(utils.router)
     app.include_router(monitor_router.router)
+    app.include_router(inbox.router)
 
     return app
 

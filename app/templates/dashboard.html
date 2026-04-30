@@ -111,6 +111,7 @@
               <td class="row-actions">
                 <button type="button" class="small row-validate">Validate</button>
                 <button type="button" class="small row-relogin">Login</button>
+                <button type="button" class="small row-inbox">Inbox</button>
                 <button type="button" class="small danger row-delete">Remove</button>
               </td>
             </tr>
@@ -122,6 +123,21 @@
       </div>
     </section>
   </main>
+</div>
+
+<!-- Inbox modal — populated on row "Inbox" click -->
+<div id="inboxModal" class="modal" hidden>
+  <div class="modal__panel">
+    <header class="modal__head">
+      <h3 class="panel__title" id="inboxTitle">Inbox</h3>
+      <button type="button" class="link" id="inboxClose">Close ×</button>
+    </header>
+    <div id="inboxBody" class="modal__body">Loading…</div>
+    <footer class="modal__foot">
+      <span class="muted-inline">Discord verification codes only · auto-extracted</span>
+      <button type="button" class="small" id="inboxRefresh">Refresh</button>
+    </footer>
+  </div>
 </div>
 
 <script src="/static/js/app.js"></script>

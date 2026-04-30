@@ -4,6 +4,7 @@ All requests go through the proxy assigned to the account when one is provided.
 """
 from __future__ import annotations
 
+import json as _json
 import logging
 from typing import Any
 
@@ -84,6 +85,61 @@ async def send_message(
                 return None
     except (ClientError, TimeoutError) as exc:
         logger.warning("send_message network error: %s", exc)
+        return None
+
+
+async def send_message_with_files(
+    token: str,
+    channel_id: str,
+    content: str,
+    files: list[tuple[str, bytes, str | None]],
+    *,
+    reply_to: str | None = None,
+    proxy_url: str | None = None,
+) -> dict[str, Any] | None:
+    """POST /channels/{id}/messages as `multipart/form-data`.
+
+    `files` is a list of `(filename, bytes, mimetype_or_None)`. Discord pairs
+    them with `payload_json` — the same JSON body `send_message` uses, just
+    delivered alongside the file parts.
+    """
+    settings = get_settings()
+    url = f"{settings.discord_api_base}/channels/{channel_id}/messages"
+
+    payload: dict[str, Any] = {"content": content}
+    if reply_to:
+        payload["message_reference"] = {"message_id": reply_to}
+
+    data = aiohttp.FormData()
+    data.add_field("payload_json", _json.dumps(payload), content_type="application/json")
+    for i, (filename, blob, mime) in enumerate(files):
+        data.add_field(
+            f"files[{i}]",
+            blob,
+            filename=filename or f"file{i}",
+            content_type=mime or "application/octet-stream",
+        )
+
+    # Don't set Content-Type — aiohttp builds the multipart boundary itself.
+    headers = {
+        "Authorization": token,
+        "User-Agent": settings.discord_user_agent,
+    }
+    timeout = ClientTimeout(total=settings.discord_http_timeout)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, headers=headers, data=data, proxy=proxy_url) as resp:
+                if resp.status in (200, 201):
+                    return await resp.json()
+                body_preview = (await resp.text())[:200]
+                logger.info(
+                    "send_message_with_files failed status=%s body=%s",
+                    resp.status,
+                    body_preview,
+                )
+                return None
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("send_message_with_files network error: %s", exc)
         return None
 
 

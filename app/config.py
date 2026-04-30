@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     monitor_topic_interval: int = 60
     monitor_dm_interval: int = 300
 
+    imap_default_host: str = ""
+    imap_default_port: int = 993
+    imap_fetch_limit: int = 10
+    imap_timeout: int = 25
+
 
 @lru_cache
 def get_settings() -> Settings:
