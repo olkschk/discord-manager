@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Accounts · Discord Farm{% endblock %}
+{% block body %}
+<div class="shell">
+  {% include "_topbar.html" %}
+
+  <main class="page">
+    <!-- Layer 1: ONE hero number + supporting stats -->
+    <section class="hero-stats">
+      <div class="stat stat--hero {% if stats.total_accounts == 0 %}empty{% endif %}">
+        <span class="stat__label">Accounts under management</span>
+        <span class="stat__value">{{ '%03d' % stats.total_accounts }}</span>
+        <span class="stat__sub">Total · synchronised</span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">Proxies</span>
+        <span class="stat__value">{{ stats.total_proxies }}</span>
+        <span class="stat__sub">Pool size</span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">Assigned</span>
+        <span class="stat__value">{{ stats.assigned_proxies }}</span>
+        <span class="stat__sub">In rotation</span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">Free</span>
+        <span class="stat__value">{{ stats.free_proxies }}</span>
+        <span class="stat__sub">Ready for assignment</span>
+      </div>
+    </section>
+
+    <!-- Add forms -->
+    <section>
+      <div class="section__head">
+        <span class="section__title">Ingestion</span>
+        <span class="section__sub">Bulk-add accounts and proxies</span>
+      </div>
+
+      <div class="split">
+        <article class="panel">
+          <div class="panel__head">
+            <h3 class="panel__title">Accounts</h3>
+            <span class="panel__hint"><code>email:password:token</code></span>
+          </div>
+          <form id="addAccountsForm">
+            <textarea name="payload" rows="6" spellcheck="false" placeholder="user@example.com:pass123:MTIz...token" required></textarea>
+            <div style="display:flex; justify-content: space-between; align-items: center; gap: var(--sp-md);">
+              <output class="result" id="addAccountsResult"></output>
+              <button type="submit" class="primary">Ingest accounts</button>
+            </div>
+          </form>
+        </article>
+
+        <article class="panel">
+          <div class="panel__head">
+            <h3 class="panel__title">Proxies</h3>
+            <span class="panel__hint"><code>ip:port:login:pass</code> · <code>login:pass@ip:port</code></span>
+          </div>
+          <form id="addProxiesForm">
+            <textarea name="payload" rows="6" spellcheck="false" placeholder="1.2.3.4:8080:user:pass" required></textarea>
+            <div style="display:flex; justify-content: space-between; align-items: center; gap: var(--sp-md);">
+              <output class="result" id="addProxiesResult"></output>
+              <button type="submit" class="primary">Ingest proxies</button>
+            </div>
+          </form>
+        </article>
+      </div>
+    </section>
+
+    <!-- Accounts table -->
+    <section>
+      <div class="section__head">
+        <span class="section__title">Inventory</span>
+        <div class="section__actions">
+          <button type="button" id="assignProxiesBtn">Assign proxies</button>
+          <button type="button" id="validateAllBtn" class="primary">Validate all</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="accounts">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Username</th>
+              <th>Display name</th>
+              <th>Proxy</th>
+              <th>Token</th>
+              <th>2FA</th>
+              <th>Server</th>
+              <th>Voice</th>
+              <th>Stream</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in accounts %}
+            <tr data-id="{{ a.id }}">
+              <td class="email">{{ a.email }}</td>
+              <td>{{ a.username }}</td>
+              <td>{{ a.name }}</td>
+              <td>{% if a.has_proxy %}<span class="dot ok" title="Assigned"></span>{% else %}<span class="dot" title="None"></span>{% endif %}</td>
+              <td>{% if a.token_valid %}<span class="status ok">valid</span>{% else %}<span class="status err">invalid</span>{% endif %}</td>
+              <td>{% if a.has_2fa %}<span class="status ok">on</span>{% else %}<span class="status muted">off</span>{% endif %}</td>
+              <td>{% if a.joined_server %}<span class="dot ok"></span>{% else %}<span class="dot"></span>{% endif %}</td>
+              <td>{% if a.joined_voice %}<span class="dot ok"></span>{% else %}<span class="dot"></span>{% endif %}</td>
+              <td>{% if a.joined_stream %}<span class="dot ok"></span>{% else %}<span class="dot"></span>{% endif %}</td>
+              <td class="row-actions">
+                <button type="button" class="small row-validate">Validate</button>
+                <button type="button" class="small danger row-delete">Remove</button>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="10" class="empty">No accounts yet — ingest some above</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="/static/js/app.js"></script>
+{% endblock %}
