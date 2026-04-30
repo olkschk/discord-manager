@@ -148,6 +148,26 @@ document.querySelectorAll("table.accounts tbody tr[data-id]").forEach((row) => {
     else alert("Login failed: " + (data.error || resp.status));
   });
   row.querySelector(".row-inbox")?.addEventListener("click", () => openInbox(id, email));
+  row.querySelector(".row-reset")?.addEventListener("click", async (e) => {
+    const newPw = prompt(`New password for ${email}? (min 8 chars)\n\nDiscord will mail a reset link; we'll fetch it via IMAP and apply.`);
+    if (!newPw || newPw.length < 8) return;
+    if (!confirm(`This will RESET ${email}'s password to your input. Continue?`)) return;
+    const btn = e.target;
+    btn.disabled = true; btn.textContent = "…";
+    const resp = await fetch(`/api/accounts/${id}/reset-password`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ new_password: newPw }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    btn.disabled = false; btn.textContent = "Reset pw";
+    if (data.ok) {
+      alert(`Password reset OK${data.rotated_token ? " (Discord also rotated the token)" : ""}.`);
+      location.reload();
+    } else {
+      alert("Reset failed: " + (data.error || resp.status));
+    }
+  });
   row.querySelector(".row-delete")?.addEventListener("click", async () => {
     if (!confirm("Remove this account?")) return;
     const resp = await fetch(`/api/accounts/${id}`, { method: "DELETE" });

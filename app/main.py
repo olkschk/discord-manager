@@ -21,8 +21,9 @@ from app.routers import (
     proxies,
     templates as templates_router,
     utils,
+    voice,
 )
-from app.services import monitor as monitor_service
+from app.services import gateway_pool, monitor as monitor_service
 
 
 @asynccontextmanager
@@ -35,6 +36,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await monitor_service.stop()
+        await gateway_pool.close_all()
         await database.disconnect()
 
 
@@ -66,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(utils.router)
     app.include_router(monitor_router.router)
     app.include_router(inbox.router)
+    app.include_router(voice.router)
 
     return app
 

@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     imap_fetch_limit: int = 10
     imap_timeout: int = 25
 
+    discord_gateway_url: str = "wss://gateway.discord.gg/?v=9&encoding=json"
+    gateway_identify_os: str = "Windows"
+    gateway_identify_browser: str = "Chrome"
+
 
 @lru_cache
 def get_settings() -> Settings:

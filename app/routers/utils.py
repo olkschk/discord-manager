@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.database import discords
 from app.security import decrypt, encrypt, require_login
+from app.services import gateway_pool
 from app.services.account_helpers import load_account_token_and_proxy
 from app.services.ai_client import generate_identity
 from app.services.discord_api import enable_mfa, join_invite, patch_profile
@@ -153,6 +154,36 @@ async def setup_two_fa(body: TwoFASetupBody) -> dict:
 
     await discords().update_one({"_id": ObjectId(body.account_id)}, {"$set": update})
     return {"ok": True, "secret": secret, "code": code, "backup_codes": backup_codes}
+
+
+# ── Activity (gateway PRESENCE_UPDATE) ──────────────────────────────────────
+class ActivityBody(BaseModel):
+    account_ids: list[str] = Field(..., min_length=1)
+    activity_type: int = Field(0, ge=0, le=5)  # 0=Playing,1=Streaming,2=Listening,3=Watching,5=Competing
+    activity_name: str = Field(..., min_length=1, max_length=128)
+
+
+@router.post("/activity")
+async def set_activity(body: ActivityBody) -> dict:
+    """Set the same activity on N accounts via persistent gateway connections."""
+    results: list[dict] = []
+    for acc_id in body.account_ids:
+        ok = await gateway_pool.set_activity(acc_id, body.activity_type, body.activity_name)
+        results.append({"account_id": acc_id, "ok": ok})
+    return {"results": results}
+
+
+class ClearActivityBody(BaseModel):
+    account_ids: list[str] = Field(..., min_length=1)
+
+
+@router.post("/activity/clear")
+async def clear_activity(body: ClearActivityBody) -> dict:
+    results: list[dict] = []
+    for acc_id in body.account_ids:
+        ok = await gateway_pool.clear_activity(acc_id)
+        results.append({"account_id": acc_id, "ok": ok})
+    return {"results": results}
 
 
 @router.get("/2fa/{account_id}/code")

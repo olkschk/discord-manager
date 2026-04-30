@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Voice · Discord Farm{% endblock %}
+{% block body %}
+<div class="shell">
+  {% include "_topbar.html" %}
+
+  <main class="page utils-page">
+    <section>
+      <div class="section__head">
+        <span class="section__title">Voice connections</span>
+        <span class="section__sub">Hold a gateway WS open to appear in a channel</span>
+      </div>
+
+      <article class="panel">
+        <p class="panel__hint">
+          The Discord gateway WebSocket must stay connected for the account to appear in the
+          channel. Disconnect frees the connection.
+        </p>
+
+        <div class="split">
+          <label>
+            <span>Guild ID</span>
+            <input type="text" id="voiceGuildId" placeholder="123456789012345678" spellcheck="false" />
+          </label>
+          <label>
+            <span>Channel ID</span>
+            <input type="text" id="voiceChannelId" placeholder="123456789012345678" spellcheck="false" />
+          </label>
+        </div>
+
+        <div class="split">
+          <label>
+            <span>Delay min (s)</span>
+            <input type="number" id="delayMin" value="1" min="0" max="60" step="0.5" />
+          </label>
+          <label>
+            <span>Delay max (s)</span>
+            <input type="number" id="delayMax" value="4" min="0" max="60" step="0.5" />
+          </label>
+        </div>
+
+        <div class="rowlist" style="margin-top: var(--sp-md);">
+          {% for a in accounts %}
+          <label class="rowlist__row">
+            <input type="checkbox" class="acc-check" data-section="voice" value="{{ a.id }}" />
+            <span class="rowlist__primary">{{ a.email }}</span>
+            <span class="rowlist__meta">{{ a.username }}</span>
+            <span class="status {% if a.joined_voice %}ok{% else %}muted{% endif %}">
+              {{ "in voice" if a.joined_voice else "—" }}
+            </span>
+            <span class="rowlist__bio">{{ a.voice_channel_id or '' }}</span>
+          </label>
+          {% else %}
+          <p class="muted">No valid-token accounts. Validate or login-by-mail first.</p>
+          {% endfor %}
+        </div>
+
+        <div style="display:flex; justify-content: space-between; gap: var(--sp-md); margin-top: var(--sp-md);">
+          <output id="voiceResult" class="result"></output>
+          <div style="display:flex; gap: var(--sp-sm);">
+            <button type="button" id="voiceSelectAllBtn" class="small">Select all</button>
+            <button type="button" id="voiceLeaveBtn" class="small danger">Leave</button>
+            <button type="button" id="voiceJoinBtn" class="primary">Connect</button>
+          </div>
+        </div>
+      </article>
+    </section>
+  </main>
+</div>
+
+<script>
+function setResult(el, ok, msg) {
+  el.classList.remove("ok", "err");
+  el.classList.add(ok ? "ok" : "err");
+  el.textContent = msg;
+}
+function gather(section) {
+  return [...document.querySelectorAll(`.acc-check[data-section="${section}"]:checked`)].map(c => c.value);
+}
+
+document.getElementById("voiceSelectAllBtn").addEventListener("click", () => {
+  document.querySelectorAll('.acc-check[data-section="voice"]:not(:disabled)').forEach(c => c.checked = true);
+});
+
+document.getElementById("voiceJoinBtn").addEventListener("click", async () => {
+  const out = document.getElementById("voiceResult");
+  const ids = gather("voice");
+  const guild_id = document.getElementById("voiceGuildId").value.trim();
+  const channel_id = document.getElementById("voiceChannelId").value.trim();
+  const delay_min = parseFloat(document.getElementById("delayMin").value) || 0;
+  const delay_max = parseFloat(document.getElementById("delayMax").value) || 0;
+  if (!ids.length) return setResult(out, false, "Select at least one account");
+  if (!guild_id || !channel_id) return setResult(out, false, "Guild + Channel id required");
+  setResult(out, true, `Connecting ${ids.length}…`);
+  const r = await fetch("/api/voice/join", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_ids: ids, guild_id, channel_id, delay_min, delay_max }),
+  });
+  const data = await r.json();
+  if (!r.ok) return setResult(out, false, `Error ${r.status}`);
+  const ok = data.results.filter(x => x.ok).length;
+  setResult(out, ok > 0, `${ok}/${data.results.length} connected`);
+  if (ok > 0) setTimeout(() => location.reload(), 800);
+});
+
+document.getElementById("voiceLeaveBtn").addEventListener("click", async () => {
+  const out = document.getElementById("voiceResult");
+  const ids = gather("voice");
+  if (!ids.length) return setResult(out, false, "Select at least one account");
+  setResult(out, true, `Leaving ${ids.length}…`);
+  const r = await fetch("/api/voice/leave", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_ids: ids }),
+  });
+  const data = await r.json();
+  if (!r.ok) return setResult(out, false, `Error ${r.status}`);
+  const ok = data.results.filter(x => x.ok).length;
+  setResult(out, ok > 0, `${ok}/${data.results.length} left`);
+  if (ok > 0) setTimeout(() => location.reload(), 800);
+});
+</script>
+{% endblock %}

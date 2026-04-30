@@ -7,9 +7,19 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from pymongo.errors import DuplicateKeyError
 
+import asyncio
+
 from app.database import discords, mails, proxies as proxies_coll
 from app.models.account import parse_account_line
 from app.security import decrypt, encrypt, require_login
+from app.services.auth_recovery import (
+    fetch_latest_link,
+    follow_link,
+    forgot_password,
+    needs_email_verification,
+    reset_password_with_token,
+    extract_token_from_url,
+)
 from app.services.discord_api import build_proxy_url, login_with_password, mfa_totp, validate_token
 
 router = APIRouter(
@@ -218,36 +228,133 @@ async def login_by_mail(account_id: str) -> dict:
             except ValueError:
                 proxy_url = None
 
-    out = await login_with_password(acc["email"], password, proxy_url=proxy_url)
+    async def _do_login() -> dict | None:
+        return await login_with_password(acc["email"], password, proxy_url=proxy_url)
+
+    out = await _do_login()
     if out is None:
         return {"ok": False, "error": "request_failed"}
 
     token = out.get("token")
+    recovery_steps: list[str] = []
+
+    # New-device email verification — fetch the link Discord mailed and GET it.
+    if not token and needs_email_verification(out):
+        recovery_steps.append("verify_email_required")
+        link = await fetch_latest_link(acc["email"], password, must_contain="verify")
+        if not link:
+            return {"ok": False, "error": "verify_email_link_not_found", "steps": recovery_steps}
+        recovery_steps.append(f"verify_link_found: {link[:60]}")
+        if not await follow_link(link, proxy_url=proxy_url):
+            return {"ok": False, "error": "verify_link_failed", "steps": recovery_steps}
+        recovery_steps.append("verify_link_followed")
+        retry = await _do_login()
+        if retry is None:
+            return {"ok": False, "error": "retry_after_verify_failed", "steps": recovery_steps}
+        out = retry
+        token = out.get("token")
 
     if not token and out.get("mfa"):
         ticket = out.get("ticket")
         if not ticket:
-            return {"ok": False, "error": "mfa_no_ticket"}
+            return {"ok": False, "error": "mfa_no_ticket", "steps": recovery_steps}
         if not acc.get("two_fa_secret"):
-            return {"ok": False, "error": "mfa_required_but_no_secret"}
+            return {"ok": False, "error": "mfa_required_but_no_secret", "steps": recovery_steps}
         try:
             secret = decrypt(acc["two_fa_secret"])
         except ValueError:
-            return {"ok": False, "error": "two_fa_secret_unreadable"}
+            return {"ok": False, "error": "two_fa_secret_unreadable", "steps": recovery_steps}
         code = pyotp.TOTP(secret).now()
         mfa_out = await mfa_totp(ticket, code, proxy_url=proxy_url)
         if mfa_out is None:
-            return {"ok": False, "error": "mfa_failed"}
+            return {"ok": False, "error": "mfa_failed", "steps": recovery_steps}
         token = mfa_out.get("token")
 
     if not token:
         if out.get("captcha_key"):
-            return {"ok": False, "error": "captcha_required"}
+            return {"ok": False, "error": "captcha_required", "steps": recovery_steps}
         return {"ok": False, "error": "unknown"}
 
     await discords().update_one(
         {"_id": ObjectId(account_id)},
         {"$set": {"discord_token": encrypt(token), "token_valid": True}},
     )
-    logger.info("Re-logged in %s via /auth/login", acc.get("email"))
-    return {"ok": True}
+    logger.info("Re-logged in %s via /auth/login (steps=%s)", acc.get("email"), recovery_steps)
+    return {"ok": True, "steps": recovery_steps}
+
+
+@router.post("/{account_id}/reset-password")
+async def reset_password_endpoint(account_id: str, body: dict) -> dict:
+    """Trigger Discord password reset via email link.
+
+    Body: {"new_password": str}.
+    Flow: POST /auth/forgot → wait → IMAP fetch reset link → extract token →
+    POST /auth/reset → re-encrypt new password into mails + discords.
+    """
+    new_password = (body or {}).get("new_password", "")
+    if not new_password or len(new_password) < 8:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "new_password must be at least 8 chars")
+    if not ObjectId.is_valid(account_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
+
+    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    if acc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+
+    try:
+        old_password = decrypt(acc["password"])
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, "Mail password ciphertext unreadable"
+        )
+
+    proxy_url: str | None = None
+    if acc.get("proxy_id"):
+        proxy = await proxies_coll().find_one({"_id": acc["proxy_id"]})
+        if proxy is not None:
+            try:
+                proxy_url = build_proxy_url(
+                    proxy["ip"], proxy["port"], proxy["login"], decrypt(proxy["password"])
+                )
+            except ValueError:
+                proxy_url = None
+
+    if not await forgot_password(acc["email"], proxy_url=proxy_url):
+        return {"ok": False, "error": "forgot_request_failed"}
+
+    # Discord typically delivers the reset email within seconds. Poll IMAP
+    # a few times to keep the operator from racing the email.
+    link: str | None = None
+    for _ in range(6):
+        await asyncio.sleep(5)
+        link = await fetch_latest_link(acc["email"], old_password, must_contain="reset")
+        if link:
+            break
+    if not link:
+        return {"ok": False, "error": "reset_link_not_found"}
+
+    token = extract_token_from_url(link)
+    if not token:
+        return {"ok": False, "error": "reset_token_not_in_link", "link": link[:80]}
+
+    out = await reset_password_with_token(token, new_password, proxy_url=proxy_url)
+    if out is None:
+        return {"ok": False, "error": "reset_request_failed"}
+
+    enc_new = encrypt(new_password)
+    await discords().update_one(
+        {"_id": ObjectId(account_id)}, {"$set": {"password": enc_new}}
+    )
+    await mails().update_one(
+        {"email": acc["email"]}, {"$set": {"password": enc_new}}
+    )
+
+    new_token = out.get("token") if isinstance(out, dict) else None
+    if new_token:
+        await discords().update_one(
+            {"_id": ObjectId(account_id)},
+            {"$set": {"discord_token": encrypt(new_token), "token_valid": True}},
+        )
+
+    logger.info("Reset password for %s", acc.get("email"))
+    return {"ok": True, "rotated_token": bool(new_token)}

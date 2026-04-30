@@ -60,6 +60,54 @@
       </div>
     </section>
 
+    <!-- Activity -->
+    <section>
+      <div class="section__head">
+        <span class="section__title">Activity</span>
+        <div class="section__actions">
+          <button type="button" id="activitySelectAll" class="small">Select all valid</button>
+          <button type="button" id="activityClearBtn" class="small danger">Clear</button>
+          <button type="button" id="activityApplyBtn" class="primary">Apply</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="panel__hint">
+          Sets a custom presence via persistent gateway WebSocket. Activity disappears when the
+          process restarts (re-apply after restart).
+        </p>
+        <div class="split">
+          <label>
+            <span>Type</span>
+            <select id="activityType">
+              <option value="0">Playing</option>
+              <option value="1">Streaming</option>
+              <option value="2">Listening to</option>
+              <option value="3">Watching</option>
+              <option value="5">Competing in</option>
+            </select>
+          </label>
+          <label>
+            <span>Name</span>
+            <input type="text" id="activityName" placeholder="Fortnite / Spotify / English class…" maxlength="128" />
+          </label>
+        </div>
+        <div class="rowlist">
+          {% for a in accounts %}
+          <label class="rowlist__row">
+            <input type="checkbox" class="acc-check" data-section="activity" value="{{ a.id }}" {% if not a.token_valid %}disabled{% endif %} />
+            <span class="rowlist__primary">{{ a.email }}</span>
+            <span class="rowlist__meta">{{ a.username }}</span>
+            <span class="status {% if a.token_valid %}ok{% else %}muted{% endif %}">{{ "valid" if a.token_valid else "invalid" }}</span>
+          </label>
+          {% else %}
+          <p class="muted">No accounts yet.</p>
+          {% endfor %}
+        </div>
+        <output id="activityResult" class="result"></output>
+      </div>
+    </section>
+
     <!-- Identity -->
     <section>
       <div class="section__head">
@@ -243,6 +291,43 @@ document.querySelectorAll(".mfa-code-btn").forEach(btn => {
       out.textContent = "error";
     }
   });
+});
+
+// Activity
+document.getElementById("activitySelectAll")?.addEventListener("click", () => {
+  document.querySelectorAll('.acc-check[data-section="activity"]:not(:disabled)').forEach(c => c.checked = true);
+});
+document.getElementById("activityApplyBtn")?.addEventListener("click", async () => {
+  const out = document.getElementById("activityResult");
+  const ids = gather("activity");
+  const activity_type = parseInt(document.getElementById("activityType").value, 10);
+  const activity_name = document.getElementById("activityName").value.trim();
+  if (!ids.length) return setResult(out, false, "Select at least one account");
+  if (!activity_name) return setResult(out, false, "Activity name required");
+  setResult(out, true, `Applying for ${ids.length}…`);
+  const r = await fetch("/api/utils/activity", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_ids: ids, activity_type, activity_name }),
+  });
+  const data = await r.json();
+  if (!r.ok) return setResult(out, false, `Error ${r.status}`);
+  const ok = data.results.filter(x => x.ok).length;
+  setResult(out, ok > 0, `${ok}/${data.results.length} updated`);
+});
+document.getElementById("activityClearBtn")?.addEventListener("click", async () => {
+  const out = document.getElementById("activityResult");
+  const ids = gather("activity");
+  if (!ids.length) return setResult(out, false, "Select at least one account");
+  const r = await fetch("/api/utils/activity/clear", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_ids: ids }),
+  });
+  const data = await r.json();
+  if (!r.ok) return setResult(out, false, `Error ${r.status}`);
+  const ok = data.results.filter(x => x.ok).length;
+  setResult(out, ok > 0, `${ok}/${data.results.length} cleared`);
 });
 
 // Monitor: donor selection

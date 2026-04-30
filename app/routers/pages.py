@@ -57,6 +57,29 @@ async def dashboard(
     )
 
 
+@router.get("/voice", response_class=HTMLResponse)
+async def voice_page(
+    request: Request,
+    user: str = Depends(require_login),
+) -> HTMLResponse:
+    accounts: list[dict] = []
+    async for acc in discords().find({"token_valid": True}).sort("_id", -1):
+        accounts.append(
+            {
+                "id": str(acc["_id"]),
+                "email": acc["email"],
+                "username": acc.get("username") or acc["email"],
+                "joined_voice": acc.get("joined_voice", False),
+                "voice_channel_id": acc.get("voice_channel_id"),
+            }
+        )
+    return templates.TemplateResponse(
+        request,
+        "voice.html",
+        {"user": user, "active": "voice", "accounts": accounts},
+    )
+
+
 @router.get("/chat", response_class=HTMLResponse)
 async def chat_page(
     request: Request,

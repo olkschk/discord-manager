@@ -3,7 +3,7 @@
   <nav class="topbar__tabs">
     <a {% if active == 'accounts' %}class="active"{% endif %} href="/">Accounts</a>
     <a {% if active == 'chat' %}class="active"{% endif %} href="/chat">Chat</a>
-    <a href="#" aria-disabled="true">Voice</a>
+    <a {% if active == 'voice' %}class="active"{% endif %} href="/voice">Voice</a>
     <a {% if active == 'utils' %}class="active"{% endif %} href="/utils">Utils</a>
   </nav>
   <div class="topbar__user">
