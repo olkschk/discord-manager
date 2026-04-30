@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     gateway_identify_os: str = "Windows"
     gateway_identify_browser: str = "Chrome"
 
+    captcha_provider: str = "disabled"  # capsolver | twocaptcha | capmonster | anticaptcha | disabled
+    captcha_api_key: str = ""
+    captcha_poll_interval: int = 3
+    captcha_poll_attempts: int = 40
+    captcha_timeout: int = 180
+    captcha_default_page_url: str = "https://discord.com/login"
+
 
 @lru_cache
 def get_settings() -> Settings:

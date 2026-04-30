@@ -1,6 +1,7 @@
 """Async Discord HTTP helpers — token validation, basic profile fetch.
 
 All requests go through the proxy assigned to the account when one is provided.
+Captcha challenges are auto-solved via `app.services.captcha` when enabled.
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ import aiohttp
 from aiohttp import ClientError, ClientTimeout
 
 from app.config import get_settings
+from app.services.captcha import maybe_solve_for_response
 
 logger = logging.getLogger(__name__)
 
@@ -65,27 +67,56 @@ async def send_message(
     content: str,
     *,
     reply_to: str | None = None,
+    captcha_key: str | None = None,
     proxy_url: str | None = None,
+    _retry: bool = True,
 ) -> dict[str, Any] | None:
-    """POST /channels/{channel_id}/messages. Returns created message dict or None."""
+    """POST /channels/{channel_id}/messages. Returns created message dict or None.
+    Auto-solves captcha when challenged and a solver is configured."""
     settings = get_settings()
     url = f"{settings.discord_api_base}/channels/{channel_id}/messages"
     payload: dict[str, Any] = {"content": content}
     if reply_to:
         payload["message_reference"] = {"message_id": reply_to}
+    if captcha_key:
+        payload["captcha_key"] = captcha_key
 
     timeout = ClientTimeout(total=settings.discord_http_timeout)
+    body: dict[str, Any] | None = None
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, headers=_headers(token), json=payload, proxy=proxy_url) as resp:
                 if resp.status in (200, 201):
                     return await resp.json()
-                body_preview = (await resp.text())[:200]
-                logger.info("send_message failed status=%s body=%s", resp.status, body_preview)
-                return None
+                try:
+                    body = await resp.json()
+                except (aiohttp.ContentTypeError, ValueError):
+                    body = None
+                logger.info(
+                    "send_message status=%s keys=%s",
+                    resp.status,
+                    list(body.keys()) if isinstance(body, dict) else None,
+                )
     except (ClientError, TimeoutError) as exc:
         logger.warning("send_message network error: %s", exc)
         return None
+
+    if _retry and not captcha_key:
+        solved = await maybe_solve_for_response(
+            body, page_url_hint=f"https://discord.com/channels/@me/{channel_id}"
+        )
+        if solved:
+            logger.info("send_message retrying with solved captcha")
+            return await send_message(
+                token,
+                channel_id,
+                content,
+                reply_to=reply_to,
+                captcha_key=solved,
+                proxy_url=proxy_url,
+                _retry=False,
+            )
+    return None
 
 
 async def send_message_with_files(
@@ -220,22 +251,58 @@ async def join_invite(
     token: str,
     invite_code: str,
     *,
+    captcha_key: str | None = None,
     proxy_url: str | None = None,
+    _retry: bool = True,
 ) -> dict[str, Any] | None:
-    """POST /invites/{invite_code} — joins the server."""
+    """POST /invites/{invite_code} — joins the server. Auto-solves captcha when configured."""
     settings = get_settings()
     url = f"{settings.discord_api_base}/invites/{invite_code}"
+    body_payload: dict[str, Any] = {}
+    if captcha_key:
+        body_payload["captcha_key"] = captcha_key
+
     timeout = ClientTimeout(total=settings.discord_http_timeout)
+    body: dict[str, Any] | None = None
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=_headers(token), proxy=proxy_url) as resp:
+            async with session.post(
+                url,
+                headers=_headers(token),
+                json=body_payload if body_payload else None,
+                proxy=proxy_url,
+            ) as resp:
                 if resp.status == 200:
                     return await resp.json()
-                logger.info("join_invite failed status=%s code=%s", resp.status, invite_code)
-                return None
+                # Try to parse the body so we can detect captcha challenges
+                try:
+                    body = await resp.json()
+                except (aiohttp.ContentTypeError, ValueError):
+                    body = None
+                logger.info(
+                    "join_invite status=%s code=%s body_keys=%s",
+                    resp.status,
+                    invite_code,
+                    list(body.keys()) if isinstance(body, dict) else None,
+                )
     except (ClientError, TimeoutError) as exc:
         logger.warning("join_invite network error: %s", exc)
         return None
+
+    if _retry and not captcha_key:
+        solved = await maybe_solve_for_response(
+            body, page_url_hint=f"https://discord.com/invite/{invite_code}"
+        )
+        if solved:
+            logger.info("join_invite retrying with solved captcha")
+            return await join_invite(
+                token,
+                invite_code,
+                captcha_key=solved,
+                proxy_url=proxy_url,
+                _retry=False,
+            )
+    return None
 
 
 async def login_with_password(
@@ -244,14 +311,19 @@ async def login_with_password(
     *,
     captcha_key: str | None = None,
     proxy_url: str | None = None,
+    _retry: bool = True,
 ) -> dict[str, Any] | None:
     """POST /auth/login. Returns Discord's response dict (token, ticket, captcha info)
     or None on transport failure. Does NOT require an existing token.
 
+    If Discord challenges with captcha and a solver is configured, the request
+    auto-retries once with the solved token. `_retry=False` disables the retry
+    (used internally to prevent infinite loops).
+
     Possible result shapes (HTTP 200 or 400):
     - {"token": "...", "user_id": "..."}                 → success
     - {"mfa": True, "ticket": "...", "token": null}      → TOTP required
-    - {"captcha_key": [...], "captcha_sitekey": "..."}   → captcha required (not solvable here)
+    - {"captcha_key": [...], "captcha_sitekey": "..."}   → captcha required
     """
     settings = get_settings()
     url = f"{settings.discord_api_base}/auth/login"
@@ -277,17 +349,25 @@ async def login_with_password(
                     logger.info("login_with_password unexpected status=%s", resp.status)
                     return None
                 body = await resp.json()
-                if isinstance(body, dict):
-                    logger.info(
-                        "login_with_password status=%s keys=%s",
-                        resp.status,
-                        list(body.keys()),
-                    )
-                    return body
-                return None
+                if not isinstance(body, dict):
+                    return None
+                logger.info(
+                    "login_with_password status=%s keys=%s",
+                    resp.status,
+                    list(body.keys()),
+                )
     except (ClientError, TimeoutError) as exc:
         logger.warning("login_with_password network error: %s", exc)
         return None
+
+    if _retry and not captcha_key:
+        token = await maybe_solve_for_response(body, page_url_hint=settings.captcha_default_page_url)
+        if token:
+            logger.info("login_with_password retrying with solved captcha")
+            return await login_with_password(
+                email, password, captcha_key=token, proxy_url=proxy_url, _retry=False
+            )
+    return body
 
 
 async def mfa_totp(
