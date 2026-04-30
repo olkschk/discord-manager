@@ -94,8 +94,18 @@ async def _solve_anticaptcha_style(
 ) -> str | None:
     settings = get_settings()
     is_enterprise = bool(rqdata)
+    # Task-type naming differs per provider:
+    # Anti-Captcha  → "HCaptchaEnterpriseTaskProxyless" (separate type)
+    # CapSolver/CapMonster → always "HCaptchaTaskProxyless"; enterprise data
+    #   goes in the same type via the enterprisePayload field
+    is_anticaptcha_provider = "anti-captcha.com" in base_url
+    task_type = (
+        "HCaptchaEnterpriseTaskProxyless"
+        if (is_enterprise and is_anticaptcha_provider)
+        else "HCaptchaTaskProxyless"
+    )
     task: dict[str, object] = {
-        "type": "HCaptchaEnterpriseTaskProxyless" if is_enterprise else "HCaptchaTaskProxyless",
+        "type": task_type,
         "websiteURL": page_url,
         "websiteKey": sitekey,
     }
@@ -106,8 +116,8 @@ async def _solve_anticaptcha_style(
 
     create_payload = {"clientKey": api_key, "task": task}
     logger.info(
-        "captcha createTask type=%s sitekey=%s enterprise=%s",
-        task["type"], sitekey[:12], is_enterprise,
+        "captcha createTask provider=%s type=%s sitekey=%.12s enterprise=%s",
+        base_url.split("//")[-1].split("/")[0], task_type, sitekey, is_enterprise,
     )
 
     timeout = ClientTimeout(total=settings.captcha_timeout)
