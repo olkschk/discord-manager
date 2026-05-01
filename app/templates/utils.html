@@ -202,6 +202,37 @@
   </main>
 </div>
 
+<!-- Custom identity modal — must be BEFORE the <script> block so getElementById finds it -->
+<div id="customIdentityModal" class="modal" hidden>
+  <div class="modal__panel">
+    <header class="modal__head">
+      <h3 class="panel__title">Set custom identity · <span id="ciEmail" style="color:var(--text-secondary)"></span></h3>
+      <button type="button" class="link" id="ciClose">Close ×</button>
+    </header>
+    <form id="ciForm" class="modal__body" style="gap:var(--sp-md)">
+      <div>
+        <label>
+          <span>Username</span>
+          <input type="text" id="ciUsername" placeholder="letters, digits, underscore (2–32)" maxlength="32" spellcheck="false" autocomplete="off" />
+        </label>
+        <span id="ciUsernameStatus" class="username-status"></span>
+      </div>
+      <label>
+        <span>Display name</span>
+        <input type="text" id="ciGlobalName" placeholder="Public name (max 32)" maxlength="32" />
+      </label>
+      <label>
+        <span>Bio</span>
+        <textarea id="ciBio" rows="3" placeholder="About me (max 190)" maxlength="190"></textarea>
+      </label>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:var(--sp-md);">
+        <output id="ciResult" class="result"></output>
+        <button type="submit" class="primary">Apply</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 function gather(section) {
   return [...document.querySelectorAll(`.acc-check[data-section="${section}"]:checked`)].map(c => c.value);
@@ -470,35 +501,4 @@ document.querySelectorAll(".topic-del").forEach(btn => {
   });
 });
 </script>
-
-<!-- Custom identity modal -->
-<div id="customIdentityModal" class="modal" hidden>
-  <div class="modal__panel">
-    <header class="modal__head">
-      <h3 class="panel__title">Set custom identity · <span id="ciEmail" style="color:var(--text-secondary)"></span></h3>
-      <button type="button" class="link" id="ciClose">Close ×</button>
-    </header>
-    <form id="ciForm" class="modal__body" style="gap:var(--sp-md)">
-      <div>
-        <label>
-          <span>Username</span>
-          <input type="text" id="ciUsername" placeholder="letters, digits, underscore (2–32)" maxlength="32" spellcheck="false" autocomplete="off" />
-        </label>
-        <span id="ciUsernameStatus" class="username-status"></span>
-      </div>
-      <label>
-        <span>Display name</span>
-        <input type="text" id="ciGlobalName" placeholder="Public name (max 32)" maxlength="32" />
-      </label>
-      <label>
-        <span>Bio</span>
-        <textarea id="ciBio" rows="3" placeholder="About me (max 190)" maxlength="190"></textarea>
-      </label>
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:var(--sp-md);">
-        <output id="ciResult" class="result"></output>
-        <button type="submit" class="primary">Apply</button>
-      </div>
-    </form>
-  </div>
-</div>
 {% endblock %}
