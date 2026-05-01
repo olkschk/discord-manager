@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 import aiohttp
 from aiohttp import ClientError, ClientTimeout
@@ -38,6 +38,7 @@ async def solve_hcaptcha(
     *,
     rqdata: str | None = None,
     user_agent: str | None = None,
+    proxy_url: str | None = None,
 ) -> str | None:
     """Solve an hCaptcha challenge and return the token (use as `captcha_key`).
 
@@ -60,15 +61,18 @@ async def solve_hcaptcha(
     try:
         if provider == "capsolver":
             return await _solve_anticaptcha_style(
-                "https://api.capsolver.com", sitekey, page_url, key, rqdata=rqdata, user_agent=ua
+                "https://api.capsolver.com", sitekey, page_url, key,
+                rqdata=rqdata, user_agent=ua, proxy_url=proxy_url,
             )
         if provider == "capmonster":
             return await _solve_anticaptcha_style(
-                "https://api.capmonster.cloud", sitekey, page_url, key, rqdata=rqdata, user_agent=ua
+                "https://api.capmonster.cloud", sitekey, page_url, key,
+                rqdata=rqdata, user_agent=ua, proxy_url=proxy_url,
             )
         if provider == "anticaptcha":
             return await _solve_anticaptcha_style(
-                "https://api.anti-captcha.com", sitekey, page_url, key, rqdata=rqdata, user_agent=ua
+                "https://api.anti-captcha.com", sitekey, page_url, key,
+                rqdata=rqdata, user_agent=ua, proxy_url=proxy_url,
             )
         if provider in ("2captcha", "twocaptcha"):
             return await _solve_twocaptcha(
@@ -91,19 +95,34 @@ async def _solve_anticaptcha_style(
     *,
     rqdata: str | None = None,
     user_agent: str | None = None,
+    proxy_url: str | None = None,
 ) -> str | None:
     settings = get_settings()
     is_enterprise = bool(rqdata)
-    # All three providers (CapSolver, CapMonster, Anti-Captcha) use the same
-    # task type — "HCaptchaTaskProxyless" — regardless of Enterprise mode.
-    # Enterprise data goes in the enterprisePayload field of that same task.
-    # (Anti-Captcha's "HCaptchaEnterpriseTaskProxyless" is not a real type;
-    # using it causes ERROR_TASK_NOT_SUPPORTED.)
-    task: dict[str, object] = {
-        "type": "HCaptchaTaskProxyless",
-        "websiteURL": page_url,
-        "websiteKey": sitekey,
-    }
+
+    # Use proxy-aware task type when a proxy is supplied — the solver sends
+    # the hCaptcha request from the same IP as the Discord request, which
+    # improves solve quality for IP-bound challenges.
+    if proxy_url:
+        parsed = urlparse(proxy_url)
+        task: dict[str, object] = {
+            "type": "HCaptchaTask",
+            "websiteURL": page_url,
+            "websiteKey": sitekey,
+            "proxyType": parsed.scheme or "http",
+            "proxyAddress": parsed.hostname or "",
+            "proxyPort": parsed.port or 3128,
+        }
+        if parsed.username:
+            task["proxyLogin"] = parsed.username
+            task["proxyPassword"] = parsed.password or ""
+    else:
+        task = {
+            "type": "HCaptchaTaskProxyless",
+            "websiteURL": page_url,
+            "websiteKey": sitekey,
+        }
+
     if is_enterprise:
         task["enterprisePayload"] = {"rqdata": rqdata}
     if user_agent:
@@ -210,6 +229,7 @@ async def maybe_solve_for_response(
     body: object,
     *,
     page_url_hint: str = "https://discord.com/login",
+    proxy_url: str | None = None,
 ) -> str | None:
     """Inspect a Discord JSON response for a captcha challenge and solve it.
 
@@ -218,8 +238,10 @@ async def maybe_solve_for_response(
         captcha_rqdata, captcha_rqtoken   ← Enterprise fields
 
     `captcha_rqdata` is forwarded to the solver as the Enterprise payload.
-    Without it the solver returns a token Discord will reject immediately
-    (producing a new challenge).
+    Without it the solver returns a token Discord will reject immediately.
+
+    `proxy_url` is forwarded to the solver so the captcha is solved from the
+    same IP as the Discord request (Anti-Captcha/CapSolver proxy task mode).
     """
     if not isinstance(body, dict):
         return None
@@ -229,4 +251,6 @@ async def maybe_solve_for_response(
     if not sitekey:
         return None
     rqdata = body.get("captcha_rqdata")
-    return await solve_hcaptcha(sitekey, page_url_hint, rqdata=rqdata)
+    return await solve_hcaptcha(
+        sitekey, page_url_hint, rqdata=rqdata, proxy_url=proxy_url
+    )

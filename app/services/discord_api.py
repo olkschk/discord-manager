@@ -5,9 +5,11 @@ Captcha challenges are auto-solved via `app.services.captcha` when enabled.
 """
 from __future__ import annotations
 
+import base64
 import json as _json
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 import aiohttp
 from aiohttp import ClientError, ClientTimeout
@@ -17,18 +19,67 @@ from app.services.captcha import maybe_solve_for_response
 
 logger = logging.getLogger(__name__)
 
+# Discord build number used in X-Super-Properties.
+# Update this if Discord starts rejecting the fingerprint.
+_CLIENT_BUILD_NUMBER = 337612
+
 
 def build_proxy_url(ip: str, port: str, login: str, password: str, scheme: str = "http") -> str:
     """Build a proxy URL aiohttp can use directly via `proxy=`."""
     return f"{scheme}://{login}:{password}@{ip}:{port}"
 
 
+def _x_super_properties(ua: str) -> str:
+    """Base64-encoded JSON fingerprint Discord expects on every request."""
+    # Extract Chrome version from UA string or fall back to fixed version.
+    chrome_ver = "120.0.0.0"
+    if "Chrome/" in ua:
+        try:
+            chrome_ver = ua.split("Chrome/")[1].split(" ")[0]
+        except IndexError:
+            pass
+    payload = {
+        "os": "Windows",
+        "browser": "Chrome",
+        "device": "",
+        "system_locale": "en-US",
+        "browser_user_agent": ua,
+        "browser_version": chrome_ver,
+        "os_version": "10",
+        "referrer": "https://discord.com/",
+        "referring_domain": "discord.com",
+        "release_channel": "stable",
+        "client_build_number": _CLIENT_BUILD_NUMBER,
+        "client_event_source": None,
+    }
+    return base64.b64encode(
+        _json.dumps(payload, separators=(",", ":")).encode()
+    ).decode()
+
+
 def _headers(token: str) -> dict[str, str]:
     settings = get_settings()
+    ua = settings.discord_user_agent
     return {
         "Authorization": token,
-        "User-Agent": settings.discord_user_agent,
+        "User-Agent": ua,
         "Content-Type": "application/json",
+        "X-Super-Properties": _x_super_properties(ua),
+        "X-Discord-Locale": "en-US",
+        "Origin": "https://discord.com",
+        "Referer": "https://discord.com/channels/@me",
+    }
+
+
+def _login_headers(ua: str) -> dict[str, str]:
+    """Headers for /auth/login — no Authorization, Referer points to login page."""
+    return {
+        "User-Agent": ua,
+        "Content-Type": "application/json",
+        "X-Super-Properties": _x_super_properties(ua),
+        "X-Discord-Locale": "en-US",
+        "Origin": "https://discord.com",
+        "Referer": "https://discord.com/login",
     }
 
 
@@ -310,23 +361,29 @@ async def login_with_password(
     password: str,
     *,
     captcha_key: str | None = None,
+    captcha_rqtoken: str | None = None,
     proxy_url: str | None = None,
     _retry: bool = True,
 ) -> dict[str, Any] | None:
-    """POST /auth/login. Returns Discord's response dict (token, ticket, captcha info)
-    or None on transport failure. Does NOT require an existing token.
+    """POST /auth/login with proper browser fingerprinting.
 
-    If Discord challenges with captcha and a solver is configured, the request
-    auto-retries once with the solved token. `_retry=False` disables the retry
-    (used internally to prevent infinite loops).
+    Flow mirrors the reference implementation:
+    1. Pre-flight GET on discord.com/login (establishes session cookies, not strictly
+       required with aiohttp but normalises the fingerprint).
+    2. POST /auth/login.
+    3. If captcha challenge → solve (with rqdata) → retry with captcha_key + captcha_rqtoken.
 
     Possible result shapes (HTTP 200 or 400):
-    - {"token": "...", "user_id": "..."}                 → success
-    - {"mfa": True, "ticket": "...", "token": null}      → TOTP required
-    - {"captcha_key": [...], "captcha_sitekey": "..."}   → captcha required
+    - {"token": "...", "user_id": "..."}              → success
+    - {"mfa": True, "ticket": "...", "token": null}   → TOTP required; call mfa_totp()
+    - {"captcha_key": [...], "captcha_sitekey": "..."} → captcha required
     """
     settings = get_settings()
-    url = f"{settings.discord_api_base}/auth/login"
+    api_url = f"{settings.discord_api_base}/auth/login"
+    ua = settings.discord_user_agent
+    headers = _login_headers(ua)
+    timeout = ClientTimeout(total=settings.discord_http_timeout)
+
     payload: dict[str, Any] = {
         "login": email,
         "password": password,
@@ -336,36 +393,46 @@ async def login_with_password(
     }
     if captcha_key:
         payload["captcha_key"] = captcha_key
+    if captcha_rqtoken:
+        payload["captcha_rqtoken"] = captcha_rqtoken
 
-    headers = {
-        "User-Agent": settings.discord_user_agent,
-        "Content-Type": "application/json",
-    }
-    timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=headers, json=payload, proxy=proxy_url) as resp:
+            # Pre-flight — Discord uses this to associate the session with a real browser visit.
+            try:
+                await session.get("https://discord.com/login", proxy=proxy_url, headers={"User-Agent": ua})
+            except (ClientError, TimeoutError):
+                pass  # non-fatal; continue anyway
+
+            async with session.post(api_url, headers=headers, json=payload, proxy=proxy_url) as resp:
                 if resp.status not in (200, 400):
                     logger.info("login_with_password unexpected status=%s", resp.status)
                     return None
                 body = await resp.json()
                 if not isinstance(body, dict):
                     return None
-                logger.info(
-                    "login_with_password status=%s keys=%s",
-                    resp.status,
-                    list(body.keys()),
-                )
+                logger.info("login_with_password status=%s keys=%s", resp.status, list(body.keys()))
     except (ClientError, TimeoutError) as exc:
         logger.warning("login_with_password network error: %s", exc)
         return None
 
-    if _retry and not captcha_key:
-        token = await maybe_solve_for_response(body, page_url_hint=settings.captcha_default_page_url)
-        if token:
-            logger.info("login_with_password retrying with solved captcha")
+    # Auto-solve captcha and retry once.
+    if _retry and not captcha_key and body.get("captcha_sitekey"):
+        rqtoken = body.get("captcha_rqtoken", "")
+        solved = await maybe_solve_for_response(
+            body,
+            page_url_hint=settings.captcha_default_page_url,
+            proxy_url=proxy_url,
+        )
+        if solved:
+            logger.info("login_with_password: captcha solved, retrying")
             return await login_with_password(
-                email, password, captcha_key=token, proxy_url=proxy_url, _retry=False
+                email,
+                password,
+                captcha_key=solved,
+                captcha_rqtoken=rqtoken,
+                proxy_url=proxy_url,
+                _retry=False,
             )
     return body
 
@@ -374,21 +441,22 @@ async def mfa_totp(
     ticket: str,
     code: str,
     *,
+    login_instance_id: str | None = None,
     proxy_url: str | None = None,
 ) -> dict[str, Any] | None:
     """POST /auth/mfa/totp — exchange MFA ticket + TOTP code for an auth token."""
     settings = get_settings()
     url = f"{settings.discord_api_base}/auth/mfa/totp"
-    payload = {
+    payload: dict[str, Any] = {
         "code": code,
         "ticket": ticket,
         "login_source": None,
         "gift_code_sku_id": None,
     }
-    headers = {
-        "User-Agent": settings.discord_user_agent,
-        "Content-Type": "application/json",
-    }
+    if login_instance_id:
+        payload["login_instance_id"] = login_instance_id
+    headers = _login_headers(settings.discord_user_agent)
+    del headers["Origin"]  # not needed for mfa endpoint
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:

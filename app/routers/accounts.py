@@ -265,7 +265,11 @@ async def login_by_mail(account_id: str) -> dict:
         except ValueError:
             return {"ok": False, "error": "two_fa_secret_unreadable", "steps": recovery_steps}
         code = pyotp.TOTP(secret).now()
-        mfa_out = await mfa_totp(ticket, code, proxy_url=proxy_url)
+        mfa_out = await mfa_totp(
+            ticket, code,
+            login_instance_id=out.get("login_instance_id"),
+            proxy_url=proxy_url,
+        )
         if mfa_out is None:
             return {"ok": False, "error": "mfa_failed", "steps": recovery_steps}
         token = mfa_out.get("token")
