@@ -511,19 +511,87 @@ async def enable_mfa(
     *,
     proxy_url: str | None = None,
 ) -> dict[str, Any] | None:
-    """POST /users/@me/mfa/totp/enable. Returns {backup_codes, token} on success."""
+    """Enable TOTP 2FA using curl_cffi (Chrome TLS fingerprint).
+
+    3-step flow from twofa.py reference + requests.md:
+    1. POST /users/@me/mfa/totp/enable {secret, code}
+       - 200 → success immediately
+       - 401 code 60003 → need password confirmation
+    2. POST /mfa/finish {ticket, mfa_type: "password", data: password}
+    3. POST /users/@me/mfa/totp/enable {secret, code (fresh)} → {token, backup_codes}
+    """
+    from curl_cffi.requests import AsyncSession
+    import pyotp as _pyotp
+
     settings = get_settings()
-    url = f"{settings.discord_api_base}/users/@me/mfa/totp/enable"
-    payload = {"code": totp_code, "secret": secret, "password": password}
-    timeout = ClientTimeout(total=settings.discord_http_timeout)
+    api = settings.discord_api_base
+    headers = _headers(token)
+    proxies = {"https": proxy_url, "http": proxy_url} if proxy_url else None
+
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=_headers(token), json=payload, proxy=proxy_url) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                body_preview = (await resp.text())[:200]
-                logger.info("enable_mfa failed status=%s body=%s", resp.status, body_preview)
+        async with AsyncSession(impersonate="chrome124") as session:
+            # Preflight — match reference pattern (twofa.py does this)
+            try:
+                await session.get("https://discord.com/login", proxies=proxies)
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(1)
+
+            # Step 1
+            resp = await session.post(
+                f"{api}/users/@me/mfa/totp/enable",
+                json={"secret": secret, "code": totp_code},
+                headers=headers,
+                proxies=proxies,
+            )
+            data = resp.json()
+
+            if resp.status_code == 200:
+                return data
+
+            if not (resp.status_code == 401 and isinstance(data, dict) and data.get("code") == 60003):
+                logger.info("enable_mfa step1 failed status=%s body=%.200s", resp.status_code, str(data))
                 return None
-    except (ClientError, TimeoutError) as exc:
-        logger.warning("enable_mfa network error: %s", exc)
+
+            ticket = (data.get("mfa") or {}).get("ticket")
+            if not ticket:
+                logger.warning("enable_mfa: no ticket in 60003 response")
+                return None
+
+            await asyncio.sleep(1)
+
+            # Step 2 — verify password
+            resp2 = await session.post(
+                f"{api}/mfa/finish",
+                json={"ticket": ticket, "mfa_type": "password", "data": password},
+                headers=headers,
+                proxies=proxies,
+            )
+            if resp2.status_code != 200:
+                logger.info(
+                    "enable_mfa mfa/finish failed status=%s body=%.200s",
+                    resp2.status_code, resp2.text,
+                )
+                return None
+
+            await asyncio.sleep(1)
+
+            # Step 3 — enable MFA with fresh TOTP code
+            new_code = _pyotp.TOTP(secret).now()
+            resp3 = await session.post(
+                f"{api}/users/@me/mfa/totp/enable",
+                json={"secret": secret, "code": new_code},
+                headers=headers,
+                proxies=proxies,
+            )
+            if resp3.status_code == 200:
+                return resp3.json()
+            logger.info(
+                "enable_mfa step3 failed status=%s body=%.200s",
+                resp3.status_code, resp3.text,
+            )
+            return None
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("enable_mfa error: %s", exc)
         return None
