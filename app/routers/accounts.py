@@ -14,6 +14,7 @@ from app.models.account import parse_account_line
 from app.security import decrypt, encrypt, require_login
 from app.services.auth_recovery import (
     fetch_latest_link,
+    find_and_authorize_ip,
     follow_verify_link,
     forgot_password,
     needs_email_verification,
@@ -238,18 +239,13 @@ async def login_by_mail(account_id: str) -> dict:
     token = out.get("token")
     recovery_steps: list[str] = []
 
-    # New-device email verification — fetch the link Discord mailed and GET it.
+    # New-device email verification — fetch the link Discord mailed and POST /auth/authorize-ip.
     if not token and needs_email_verification(out):
         recovery_steps.append("verify_email_required")
-        link = await fetch_latest_link(acc["email"], password, must_contain="authorize-ip")
-        if not link:
-            # Fallback: search for any Discord click link
-            link = await fetch_latest_link(acc["email"], password)
-        if not link:
-            return {"ok": False, "error": "verify_email_link_not_found", "steps": recovery_steps}
-        recovery_steps.append(f"verify_link_found: {link[:60]}")
-        # Follow the click.discord.com redirect, extract token, POST /auth/authorize-ip
-        if not await follow_verify_link(link, proxy_url=proxy_url):
+        # Wait for the email to arrive (Discord sends it within a few seconds).
+        await asyncio.sleep(7)
+        # Try all recent Discord links until we find the authorize-ip one.
+        if not await find_and_authorize_ip(acc["email"], password, proxy_url=proxy_url):
             return {"ok": False, "error": "verify_link_failed", "steps": recovery_steps}
         recovery_steps.append("verify_link_followed")
         retry = await _do_login()
@@ -334,7 +330,7 @@ async def reset_password_endpoint(account_id: str, body: dict) -> dict:
     # a few times to keep the operator from racing the email.
     link: str | None = None
     for _ in range(6):
-        await asyncio.sleep(5)
+        await asyncio.sleep(7)
         link = await fetch_latest_link(acc["email"], old_password, must_contain="reset")
         if link:
             break

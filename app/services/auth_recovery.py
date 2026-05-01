@@ -67,13 +67,10 @@ async def authorize_ip(token: str, *, proxy_url: str | None = None) -> bool:
 
 
 async def follow_verify_link(url: str, *, proxy_url: str | None = None) -> bool:
-    """Follow a Discord email verification link and call /auth/authorize-ip.
+    """Follow a Discord email link and call /auth/authorize-ip IF it's a device-verify link.
 
-    The link (click.discord.com/...) redirects to:
-        discord.com/authorize-ip#token=<TOKEN>
-
-    We follow the redirect, extract the token from the fragment, then POST
-    /auth/authorize-ip. This is what actually registers the new device.
+    Returns True only when the link led to authorize-ip and the POST succeeded.
+    Returns False if the link is a reset/other link — caller should try a different email.
     """
     from curl_cffi.requests import AsyncSession
 
@@ -85,10 +82,18 @@ async def follow_verify_link(url: str, *, proxy_url: str | None = None) -> bool:
         async with AsyncSession(impersonate="chrome124") as s:
             resp = await s.get(url, proxies=proxies, allow_redirects=True)
             final_url = str(resp.url)
-            logger.info("follow_verify_link final_url=%.100s", final_url)
+            logger.info("follow_verify_link final_url=%.120s", final_url)
     except Exception as exc:  # noqa: BLE001
         logger.warning("follow_verify_link GET error: %s", exc)
         final_url = url
+
+    # Only proceed if this is a device-authorization link — not a reset/other link.
+    if "authorize-ip" not in final_url:
+        logger.warning(
+            "follow_verify_link: not an authorize-ip link (got %s…) — skipping",
+            final_url[:80],
+        )
+        return False
 
     token = extract_token_from_url(final_url)
     if not token:
@@ -120,6 +125,32 @@ async def fetch_latest_link(
             continue
         return link
     return None
+
+
+async def find_and_authorize_ip(
+    email: str, password: str, *, proxy_url: str | None = None
+) -> bool:
+    """Try every link in the recent Discord inbox until one leads to authorize-ip.
+
+    Needed because multiple Discord emails may be present (reset, verify, etc.)
+    and the IMAP fetcher returns them newest-first. We follow each link and skip
+    any that don't resolve to discord.com/authorize-ip#token=...
+    """
+    try:
+        entries = await fetch_recent(email, password, limit=10, only_discord=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("find_and_authorize_ip IMAP error: %s", exc)
+        return False
+
+    for e in entries:
+        link = e.get("link")
+        if not link:
+            continue
+        logger.info("find_and_authorize_ip trying link subject=%r", e.get("subject", "?")[:60])
+        if await follow_verify_link(link, proxy_url=proxy_url):
+            return True
+    logger.warning("find_and_authorize_ip: no authorize-ip link found in %d entries", len(entries))
+    return False
 
 
 async def forgot_password(
