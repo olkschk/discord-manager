@@ -42,6 +42,7 @@ class GatewayConnection:
         self.heartbeat_interval: float = 41.25
         self.last_seq: int | None = None
         self.user_id: str | None = None
+        self.session_id: str | None = None  # populated from READY event
         self._heartbeat_task: asyncio.Task | None = None
         self._reader_task: asyncio.Task | None = None
         self._closed = False
@@ -100,7 +101,9 @@ class GatewayConnection:
                 self.last_seq = data["s"]
             op = data.get("op")
             if op == OP_DISPATCH and data.get("t") == "READY":
-                self.user_id = ((data.get("d") or {}).get("user") or {}).get("id")
+                d = data.get("d") or {}
+                self.user_id = (d.get("user") or {}).get("id")
+                self.session_id = d.get("session_id")  # needed for join_invite payload
                 ready = True
                 break
             if op == OP_INVALID_SESSION:

@@ -362,58 +362,87 @@ async def join_invite(
     token: str,
     invite_code: str,
     *,
+    session_id: str | None = None,
     captcha_key: str | None = None,
+    captcha_rqtoken: str | None = None,
     proxy_url: str | None = None,
-    _retry: bool = True,
 ) -> dict[str, Any] | None:
-    """POST /invites/{invite_code} — joins the server. Auto-solves captcha when configured."""
+    """POST /invites/{invite_code} — joins the server using curl_cffi (Chrome TLS).
+
+    From requests.md: payload always contains session_id (gateway WS session id or null).
+    From join_server.py reference: uses AsyncSession(impersonate='chrome120') with preflight GET.
+    """
+    from curl_cffi.requests import AsyncSession
+
     settings = get_settings()
-    url = f"{settings.discord_api_base}/invites/{invite_code}"
-    body_payload: dict[str, Any] = {}
-    if captcha_key:
-        body_payload["captcha_key"] = captcha_key
+    api = settings.discord_api_base
+    headers = _headers(token)
+    proxies = {"https": proxy_url, "http": proxy_url} if proxy_url else None
+    invite_url = f"{api}/invites/{invite_code}"
 
-    timeout = ClientTimeout(total=settings.discord_http_timeout)
-    body: dict[str, Any] | None = None
+    # Base payload — session_id is always sent (None if no gateway session available)
+    base_payload: dict[str, Any] = {"session_id": session_id}
+
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                url,
-                headers=_headers(token),
-                json=body_payload if body_payload else None,
-                proxy=proxy_url,
-            ) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                # Try to parse the body so we can detect captcha challenges
-                try:
-                    body = await resp.json()
-                except (aiohttp.ContentTypeError, ValueError):
-                    body = None
-                logger.info(
-                    "join_invite status=%s code=%s body_keys=%s",
-                    resp.status,
-                    invite_code,
-                    list(body.keys()) if isinstance(body, dict) else None,
+        async with AsyncSession(impersonate="chrome124") as session:
+            # Preflight GET — matches reference join_server.py pattern
+            try:
+                await session.get(
+                    invite_url,
+                    params={
+                        "inputValue": f"https://discord.gg/{invite_code}",
+                        "with_counts": "true",
+                        "with_expiration": "true",
+                        "with_permissions": "true",
+                    },
+                    headers=headers,
+                    proxies=proxies,
                 )
-    except (ClientError, TimeoutError) as exc:
-        logger.warning("join_invite network error: %s", exc)
-        return None
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(1)
 
-    if _retry and not captcha_key:
-        solved = await maybe_solve_for_response(
-            body, page_url_hint=f"https://discord.com/invite/{invite_code}"
-        )
-        if solved:
-            logger.info("join_invite retrying with solved captcha")
-            return await join_invite(
-                token,
-                invite_code,
-                captcha_key=solved,
-                proxy_url=proxy_url,
-                _retry=False,
+            # POST — accept invite
+            resp = await session.post(invite_url, json=base_payload, headers=headers, proxies=proxies)
+            body = resp.json() if resp.text else {}
+
+            if resp.status_code in (200, 201):
+                logger.info("join_invite OK code=%s new_member=%s", invite_code, body.get("new_member"))
+                return body
+
+            logger.info(
+                "join_invite status=%s code=%s body_keys=%s",
+                resp.status_code, invite_code,
+                list(body.keys()) if isinstance(body, dict) else None,
             )
-    return None
+
+            # Auto-solve captcha and retry once
+            if isinstance(body, dict) and body.get("captcha_sitekey") and not captcha_key:
+                rqdata = body.get("captcha_rqdata") or None
+                rqtoken = body.get("captcha_rqtoken", "")
+                solved = await solve_hcaptcha(
+                    body["captcha_sitekey"],
+                    f"https://discord.com/invite/{invite_code}",
+                    rqdata=rqdata,
+                    proxy_url=proxy_url,
+                )
+                if solved:
+                    logger.info("join_invite: captcha solved, retrying")
+                    retry_payload = {**base_payload, "captcha_key": solved}
+                    if rqtoken:
+                        retry_payload["captcha_rqtoken"] = rqtoken
+                    await asyncio.sleep(1)
+                    resp2 = await session.post(invite_url, json=retry_payload, headers=headers, proxies=proxies)
+                    body2 = resp2.json() if resp2.text else {}
+                    if resp2.status_code in (200, 201):
+                        logger.info("join_invite OK (after captcha) code=%s", invite_code)
+                        return body2
+                    logger.info("join_invite retry status=%s body=%.200s", resp2.status_code, str(body2))
+
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("join_invite error: %s", exc)
+        return None
 
 
 async def login_with_password(

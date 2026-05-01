@@ -178,7 +178,11 @@ async def join_server(body: JoinServerBody) -> dict:
             continue
         _, token, proxy_url = resolved
 
-        out = await join_invite(token, code, proxy_url=proxy_url)
+        # Open (or reuse) gateway connection — provides the session_id Discord wants
+        conn = await gateway_pool.get_or_create(acc_id)
+        session_id = conn.session_id if conn else None
+
+        out = await join_invite(token, code, session_id=session_id, proxy_url=proxy_url)
         ok = out is not None
         if ok:
             await discords().update_one(
