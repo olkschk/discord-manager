@@ -226,6 +226,32 @@ async def send_message_with_files(
         return None
 
 
+async def check_username(
+    token: str,
+    username: str,
+    *,
+    proxy_url: str | None = None,
+) -> dict[str, Any]:
+    """POST /users/@me/pomelo-attempt — returns {taken: bool}."""
+    settings = get_settings()
+    url = f"{settings.discord_api_base}/users/@me/pomelo-attempt"
+    timeout = ClientTimeout(total=settings.discord_http_timeout)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                url,
+                headers=_headers(token),
+                json={"username": username},
+                proxy=proxy_url,
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                return {"taken": True, "status": resp.status}
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("check_username network error: %s", exc)
+        return {"taken": True, "error": str(exc)}
+
+
 async def add_reaction(
     token: str,
     channel_id: str,
@@ -261,41 +287,74 @@ async def patch_profile(
     username: str | None = None,
     global_name: str | None = None,
     bio: str | None = None,
+    password: str | None = None,
     proxy_url: str | None = None,
 ) -> dict[str, Any] | None:
-    """PATCH /users/@me (username/global_name) and /users/@me/profile (bio)."""
+    """PATCH /users/@me (username/global_name) and /users/@me/profile (bio).
+
+    Uses curl_cffi Chrome impersonation because Discord challenges profile edits
+    with captcha on plain aiohttp (returns 400 captcha_required).
+    Auto-solves captcha on the /users/@me PATCH if a solver is configured.
+    """
+    from curl_cffi.requests import AsyncSession
+
     settings = get_settings()
-    timeout = ClientTimeout(total=settings.discord_http_timeout)
+    api = settings.discord_api_base
+    headers = _headers(token)
+    proxies = {"https": proxy_url, "http": proxy_url} if proxy_url else None
     result: dict[str, Any] = {}
 
     user_payload: dict[str, Any] = {}
     if username is not None:
         user_payload["username"] = username
+        # Discord requires password when changing username
+        if password:
+            user_payload["password"] = password
     if global_name is not None:
         user_payload["global_name"] = global_name
 
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with AsyncSession(impersonate="chrome124") as session:
             if user_payload:
-                u = f"{settings.discord_api_base}/users/@me"
-                async with session.patch(u, headers=_headers(token), json=user_payload, proxy=proxy_url) as resp:
-                    if resp.status != 200:
-                        logger.info("patch /users/@me failed status=%s", resp.status)
-                        return None
-                    result.update(await resp.json())
+                u = f"{api}/users/@me"
+                resp = await session.patch(u, headers=headers, json=user_payload, proxies=proxies)
+                body = resp.json() if resp.text else {}
+
+                # Auto-solve captcha (same pattern as login flow)
+                if resp.status_code == 400 and isinstance(body, dict) and body.get("captcha_sitekey"):
+                    rqdata = body.get("captcha_rqdata") or None
+                    rqtoken = body.get("captcha_rqtoken", "")
+                    solved = await solve_hcaptcha(
+                        body["captcha_sitekey"],
+                        f"{api}/users/@me",
+                        rqdata=rqdata,
+                        proxy_url=proxy_url,
+                    )
+                    if solved:
+                        retry_payload = {**user_payload, "captcha_key": solved}
+                        if rqtoken:
+                            retry_payload["captcha_rqtoken"] = rqtoken
+                        await asyncio.sleep(1)
+                        resp = await session.patch(u, headers=headers, json=retry_payload, proxies=proxies)
+                        body = resp.json() if resp.text else {}
+
+                if resp.status_code != 200:
+                    logger.info("patch /users/@me failed status=%s body=%.200s", resp.status_code, str(body))
+                    return None
+                result.update(body)
 
             if bio is not None:
-                p = f"{settings.discord_api_base}/users/@me/profile"
-                async with session.patch(p, headers=_headers(token), json={"bio": bio}, proxy=proxy_url) as resp:
-                    if resp.status != 200:
-                        logger.info("patch /users/@me/profile failed status=%s", resp.status)
-                        return None
-                    profile = await resp.json()
-                    result["bio"] = profile.get("bio", bio)
+                p = f"{api}/users/@me/profile"
+                resp = await session.patch(p, headers=headers, json={"bio": bio}, proxies=proxies)
+                if resp.status_code != 200:
+                    logger.info("patch /users/@me/profile failed status=%s", resp.status_code)
+                    return None
+                profile = resp.json()
+                result["bio"] = profile.get("bio", bio)
 
         return result
-    except (ClientError, TimeoutError) as exc:
-        logger.warning("patch_profile network error: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("patch_profile error: %s", exc)
         return None
 
 

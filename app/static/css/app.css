@@ -753,6 +753,28 @@ table.accounts .row-actions { display: flex; gap: var(--sp-xs); justify-content:
   accent-color: var(--accent);
 }
 
+/* Identity rows have an extra "Set custom" button */
+.identity-row {
+  grid-template-columns: 24px minmax(180px, 1fr) minmax(160px, 1fr) 1fr auto auto !important;
+}
+
+/* Username availability status under the input */
+.username-status {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: var(--sp-xs);
+  min-height: 1em;
+}
+.username-status.ok { color: var(--success); }
+.username-status.err { color: var(--accent); }
+.username-status.muted { color: var(--text-disabled); }
+
+/* Modal form labels */
+.modal__body label { display: grid; gap: var(--sp-sm); }
+
 /* ──────────────────────────────────────────────────────────────────────
    MODAL (inbox)
    ────────────────────────────────────────────────────────────────────── */

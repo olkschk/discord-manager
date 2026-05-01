@@ -122,13 +122,16 @@
         <p class="panel__hint">AI-generated username, display name, and bio. Only valid-token accounts can be patched.</p>
         <div class="rowlist">
           {% for a in accounts %}
-          <label class="rowlist__row">
+          <div class="rowlist__row identity-row" data-id="{{ a.id }}"
+               data-username="{{ a.username }}" data-name="{{ a.name }}"
+               data-bio="{{ a.bio or '' }}" data-email="{{ a.email }}">
             <input type="checkbox" class="acc-check" data-section="identity" value="{{ a.id }}" {% if not a.token_valid %}disabled{% endif %} />
             <span class="rowlist__primary">{{ a.email }}</span>
             <span class="rowlist__meta">{{ a.username }} · {{ a.name }}</span>
             <span class="rowlist__bio">{{ a.bio or "—" }}</span>
             <span class="status {% if a.token_valid %}ok{% else %}muted{% endif %}">{{ "valid" if a.token_valid else "invalid" }}</span>
-          </label>
+            <button type="button" class="small custom-identity-btn" {% if not a.token_valid %}disabled{% endif %}>Set custom</button>
+          </div>
           {% else %}
           <p class="muted">No accounts yet.</p>
           {% endfor %}
@@ -330,6 +333,94 @@ document.getElementById("activityClearBtn")?.addEventListener("click", async () 
   setResult(out, ok > 0, `${ok}/${data.results.length} cleared`);
 });
 
+// ── Custom Identity modal ────────────────────────────────────────────────
+let customAccountId = null;
+let usernameCheckTimer = null;
+
+function openCustomModal(row) {
+  customAccountId = row.dataset.id;
+  document.getElementById("ciEmail").textContent = row.dataset.email || "";
+  document.getElementById("ciUsername").value = row.dataset.username !== "—" ? (row.dataset.username || "") : "";
+  document.getElementById("ciGlobalName").value = row.dataset.name !== "—" ? (row.dataset.name || "") : "";
+  document.getElementById("ciBio").value = row.dataset.bio || "";
+  document.getElementById("ciResult").textContent = "";
+  document.getElementById("ciResult").className = "result";
+  setUsernameStatus("", "");
+  document.getElementById("customIdentityModal").hidden = false;
+}
+function closeCustomModal() {
+  document.getElementById("customIdentityModal").hidden = true;
+  customAccountId = null;
+  clearTimeout(usernameCheckTimer);
+}
+document.getElementById("ciClose")?.addEventListener("click", closeCustomModal);
+document.getElementById("customIdentityModal")?.addEventListener("click", (e) => {
+  if (e.target === document.getElementById("customIdentityModal")) closeCustomModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !document.getElementById("customIdentityModal").hidden) closeCustomModal();
+});
+
+document.querySelectorAll(".custom-identity-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const row = btn.closest(".identity-row");
+    openCustomModal(row);
+  });
+});
+
+function setUsernameStatus(text, type) {
+  const el = document.getElementById("ciUsernameStatus");
+  el.textContent = text;
+  el.className = "username-status " + type;
+}
+
+document.getElementById("ciUsername")?.addEventListener("input", () => {
+  clearTimeout(usernameCheckTimer);
+  const val = document.getElementById("ciUsername").value.trim();
+  if (!val || val.length < 2) { setUsernameStatus("", ""); return; }
+  if (!/^[a-z0-9_.]{2,32}$/.test(val)) {
+    setUsernameStatus("Invalid — only a-z, 0-9, _ allowed", "err");
+    return;
+  }
+  setUsernameStatus("Checking…", "muted");
+  usernameCheckTimer = setTimeout(async () => {
+    if (!customAccountId) return;
+    const r = await fetch("/api/utils/identity/check-username", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id: customAccountId, username: val }),
+    });
+    const data = await r.json().catch(() => ({ taken: true }));
+    if (data.taken) setUsernameStatus("Taken", "err");
+    else setUsernameStatus("Available ✓", "ok");
+  }, 500);
+});
+
+document.getElementById("ciForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const out = document.getElementById("ciResult");
+  const username = document.getElementById("ciUsername").value.trim() || null;
+  const global_name = document.getElementById("ciGlobalName").value.trim() || null;
+  const bio = document.getElementById("ciBio").value.trim() !== "" ? document.getElementById("ciBio").value.trim() : null;
+  if (!username && !global_name && bio === null) {
+    setResult(out, false, "Fill at least one field");
+    return;
+  }
+  setResult(out, true, "Applying…");
+  const r = await fetch("/api/utils/identity/custom", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_id: customAccountId, username, global_name, bio }),
+  });
+  const data = await r.json();
+  if (r.ok && data.ok) {
+    setResult(out, true, "Done");
+    setTimeout(() => { closeCustomModal(); location.reload(); }, 600);
+  } else {
+    setResult(out, false, data.error || `Error ${r.status}`);
+  }
+});
+
 // Monitor: donor selection
 document.getElementById("donorSaveBtn")?.addEventListener("click", async () => {
   const checked = document.querySelector(".donor-radio:checked");
@@ -379,4 +470,35 @@ document.querySelectorAll(".topic-del").forEach(btn => {
   });
 });
 </script>
+
+<!-- Custom identity modal -->
+<div id="customIdentityModal" class="modal" hidden>
+  <div class="modal__panel">
+    <header class="modal__head">
+      <h3 class="panel__title">Set custom identity · <span id="ciEmail" style="color:var(--text-secondary)"></span></h3>
+      <button type="button" class="link" id="ciClose">Close ×</button>
+    </header>
+    <form id="ciForm" class="modal__body" style="gap:var(--sp-md)">
+      <div>
+        <label>
+          <span>Username</span>
+          <input type="text" id="ciUsername" placeholder="letters, digits, underscore (2–32)" maxlength="32" spellcheck="false" autocomplete="off" />
+        </label>
+        <span id="ciUsernameStatus" class="username-status"></span>
+      </div>
+      <label>
+        <span>Display name</span>
+        <input type="text" id="ciGlobalName" placeholder="Public name (max 32)" maxlength="32" />
+      </label>
+      <label>
+        <span>Bio</span>
+        <textarea id="ciBio" rows="3" placeholder="About me (max 190)" maxlength="190"></textarea>
+      </label>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:var(--sp-md);">
+        <output id="ciResult" class="result"></output>
+        <button type="submit" class="primary">Apply</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}

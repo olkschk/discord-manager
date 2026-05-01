@@ -13,7 +13,7 @@ from app.security import decrypt, encrypt, require_login
 from app.services import gateway_pool
 from app.services.account_helpers import load_account_token_and_proxy
 from app.services.ai_client import generate_identity
-from app.services.discord_api import enable_mfa, join_invite, patch_profile
+from app.services.discord_api import check_username as _check_username, enable_mfa, join_invite, patch_profile
 
 router = APIRouter(
     prefix="/api/utils",
@@ -37,7 +37,19 @@ async def change_identity(body: IdentityBody) -> dict:
         if resolved is None:
             results.append({"account_id": acc_id, "ok": False, "error": "unreadable"})
             continue
-        _, token, proxy_url = resolved
+        acc, token, proxy_url = resolved
+
+        # Password is required by Discord when changing username
+        try:
+            password = decrypt(acc["password"])
+        except (ValueError, KeyError):
+            password = None
+
+        # Discord requires an active gateway session for profile edits (10020 Unknown Session).
+        # Connect (or reuse existing connection) before making the PATCH request.
+        conn = await gateway_pool.get_or_create(acc_id)
+        if conn is None:
+            logger.warning("change_identity: could not open gateway for %s — trying anyway", acc_id)
 
         try:
             ident = await generate_identity()
@@ -53,6 +65,7 @@ async def change_identity(body: IdentityBody) -> dict:
             username=ident["username"],
             global_name=ident["global_name"] or None,
             bio=ident["bio"] or None,
+            password=password,
             proxy_url=proxy_url,
         )
         if out is None:
@@ -74,6 +87,75 @@ async def change_identity(body: IdentityBody) -> dict:
         results.append({"account_id": acc_id, "ok": True, "identity": ident})
 
     return {"results": results}
+
+
+# ── Custom identity (manual fields) ─────────────────────────────────────────
+class CheckUsernameBody(BaseModel):
+    account_id: str
+    username: str = Field(..., min_length=2, max_length=32)
+
+
+@router.post("/identity/check-username")
+async def check_username_endpoint(body: CheckUsernameBody) -> dict:
+    """POST /users/@me/pomelo-attempt — returns {taken: bool}."""
+    resolved = await load_account_token_and_proxy(body.account_id)
+    if resolved is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
+    _, token, proxy_url = resolved
+    result = await _check_username(token, body.username, proxy_url=proxy_url)
+    return result
+
+
+class CustomIdentityBody(BaseModel):
+    account_id: str
+    username: str | None = Field(None, min_length=2, max_length=32)
+    global_name: str | None = Field(None, max_length=32)
+    bio: str | None = Field(None, max_length=190)
+
+
+@router.post("/identity/custom")
+async def set_custom_identity(body: CustomIdentityBody) -> dict:
+    """Apply manually-entered identity fields to a single account."""
+    if not body.username and body.global_name is None and body.bio is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "At least one field required")
+
+    resolved = await load_account_token_and_proxy(body.account_id)
+    if resolved is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
+    acc, token, proxy_url = resolved
+
+    try:
+        password = decrypt(acc["password"])
+    except (ValueError, KeyError):
+        password = None
+
+    # Ensure a gateway session exists before patching (Discord requires it).
+    conn = await gateway_pool.get_or_create(body.account_id)
+    if conn is None:
+        logger.warning("set_custom_identity: no gateway for %s — trying anyway", body.account_id)
+
+    out = await patch_profile(
+        token,
+        username=body.username or None,
+        global_name=body.global_name,
+        bio=body.bio,
+        password=password,
+        proxy_url=proxy_url,
+    )
+    if out is None:
+        return {"ok": False, "error": "discord_patch_failed"}
+
+    update: dict = {}
+    if body.username:
+        update["username"] = body.username
+    if body.global_name is not None:
+        update["name"] = body.global_name
+    if body.bio is not None:
+        update["bio"] = body.bio
+    if update:
+        await discords().update_one({"_id": ObjectId(body.account_id)}, {"$set": update})
+
+    return {"ok": True}
 
 
 # ── Join server ──────────────────────────────────────────────────────────────
