@@ -38,24 +38,69 @@ def extract_token_from_url(url: str) -> str | None:
     return None
 
 
-async def follow_link(url: str, *, proxy_url: str | None = None) -> bool:
-    """GET a Discord verification link with a Chromium-ish UA. Used to
-    register a new device / authorise a login. Returns True on 2xx/3xx."""
+async def authorize_ip(token: str, *, proxy_url: str | None = None) -> bool:
+    """POST /auth/authorize-ip with the token extracted from the email link.
+
+    This is the correct endpoint for new-device verification. The flow from
+    requests.md is:
+    1. GET click.discord.com/... → follows redirects → lands on
+       discord.com/authorize-ip#token=<TOKEN>
+    2. Extract token from the URL fragment.
+    3. POST /auth/authorize-ip with {token: <TOKEN>}.
+    """
     settings = get_settings()
+    url = f"{settings.discord_api_base}/auth/authorize-ip"
     headers = {
         "User-Agent": settings.discord_user_agent,
-        "Accept": "text/html,application/xhtml+xml",
+        "Content-Type": "application/json",
     }
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
         async with aiohttp.ClientSession(timeout=timeout) as s:
-            async with s.get(url, headers=headers, proxy=proxy_url, allow_redirects=True) as resp:
+            async with s.post(url, headers=headers, json={"token": token}, proxy=proxy_url) as resp:
                 ok = resp.status < 400
-                logger.info("follow_link %s status=%s", url[:80], resp.status)
+                logger.info("authorize_ip status=%s", resp.status)
                 return ok
     except (ClientError, TimeoutError) as exc:
-        logger.warning("follow_link network error: %s", exc)
+        logger.warning("authorize_ip network error: %s", exc)
         return False
+
+
+async def follow_verify_link(url: str, *, proxy_url: str | None = None) -> bool:
+    """Follow a Discord email verification link and call /auth/authorize-ip.
+
+    The link (click.discord.com/...) redirects to:
+        discord.com/authorize-ip#token=<TOKEN>
+
+    We follow the redirect, extract the token from the fragment, then POST
+    /auth/authorize-ip. This is what actually registers the new device.
+    """
+    from curl_cffi.requests import AsyncSession
+
+    settings = get_settings()
+    proxies = {"https": proxy_url, "http": proxy_url} if proxy_url else None
+    final_url: str = url
+
+    try:
+        async with AsyncSession(impersonate="chrome124") as s:
+            resp = await s.get(url, proxies=proxies, allow_redirects=True)
+            final_url = str(resp.url)
+            logger.info("follow_verify_link final_url=%.100s", final_url)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("follow_verify_link GET error: %s", exc)
+        final_url = url
+
+    token = extract_token_from_url(final_url)
+    if not token:
+        logger.warning("follow_verify_link: no token in URL %s", final_url[:100])
+        return False
+
+    return await authorize_ip(token, proxy_url=proxy_url)
+
+
+# Keep old name as alias for any callers.
+async def follow_link(url: str, *, proxy_url: str | None = None) -> bool:
+    return await follow_verify_link(url, proxy_url=proxy_url)
 
 
 async def fetch_latest_link(

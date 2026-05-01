@@ -14,7 +14,7 @@ from app.models.account import parse_account_line
 from app.security import decrypt, encrypt, require_login
 from app.services.auth_recovery import (
     fetch_latest_link,
-    follow_link,
+    follow_verify_link,
     forgot_password,
     needs_email_verification,
     reset_password_with_token,
@@ -241,11 +241,15 @@ async def login_by_mail(account_id: str) -> dict:
     # New-device email verification — fetch the link Discord mailed and GET it.
     if not token and needs_email_verification(out):
         recovery_steps.append("verify_email_required")
-        link = await fetch_latest_link(acc["email"], password, must_contain="verify")
+        link = await fetch_latest_link(acc["email"], password, must_contain="authorize-ip")
+        if not link:
+            # Fallback: search for any Discord click link
+            link = await fetch_latest_link(acc["email"], password)
         if not link:
             return {"ok": False, "error": "verify_email_link_not_found", "steps": recovery_steps}
         recovery_steps.append(f"verify_link_found: {link[:60]}")
-        if not await follow_link(link, proxy_url=proxy_url):
+        # Follow the click.discord.com redirect, extract token, POST /auth/authorize-ip
+        if not await follow_verify_link(link, proxy_url=proxy_url):
             return {"ok": False, "error": "verify_link_failed", "steps": recovery_steps}
         recovery_steps.append("verify_link_followed")
         retry = await _do_login()
