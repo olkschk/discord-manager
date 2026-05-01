@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     discord_user_agent: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
+        "Chrome/136.0.0.0 Safari/537.36"
     )
     discord_api_base: str = "https://discord.com/api/v9"
     discord_http_timeout: int = 20

@@ -5,6 +5,7 @@ Captcha challenges are auto-solved via `app.services.captcha` when enabled.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json as _json
 import logging
@@ -15,13 +16,13 @@ import aiohttp
 from aiohttp import ClientError, ClientTimeout
 
 from app.config import get_settings
-from app.services.captcha import maybe_solve_for_response
+from app.services.captcha import maybe_solve_for_response, solve_hcaptcha
 
 logger = logging.getLogger(__name__)
 
 # Discord build number used in X-Super-Properties.
 # Update this if Discord starts rejecting the fingerprint.
-_CLIENT_BUILD_NUMBER = 337612
+_CLIENT_BUILD_NUMBER = 537475
 
 
 def build_proxy_url(ip: str, port: str, login: str, password: str, scheme: str = "http") -> str:
@@ -360,81 +361,113 @@ async def login_with_password(
     email: str,
     password: str,
     *,
-    captcha_key: str | None = None,
-    captcha_rqtoken: str | None = None,
     proxy_url: str | None = None,
-    _retry: bool = True,
 ) -> dict[str, Any] | None:
-    """POST /auth/login with proper browser fingerprinting.
+    """POST /auth/login — mirrors the reference implementation exactly.
 
-    Flow mirrors the reference implementation:
-    1. Pre-flight GET on discord.com/login (establishes session cookies, not strictly
-       required with aiohttp but normalises the fingerprint).
-    2. POST /auth/login.
-    3. If captcha challenge → solve (with rqdata) → retry with captcha_key + captcha_rqtoken.
+    Uses curl_cffi AsyncSession(impersonate='chrome120') so Discord sees a real
+    Chrome TLS fingerprint. One session is kept alive for the ENTIRE flow
+    (pre-flight → login → captcha solve → retry → MFA is handled by the caller)
+    so Discord's session cookies survive the captcha round-trip.
 
-    Possible result shapes (HTTP 200 or 400):
-    - {"token": "...", "user_id": "..."}              → success
-    - {"mfa": True, "ticket": "...", "token": null}   → TOTP required; call mfa_totp()
-    - {"captcha_key": [...], "captcha_sitekey": "..."} → captcha required
+    Possible result shapes:
+    - {"token": "...", "user_id": "..."}              → success (no 2FA)
+    - {"mfa": True, "ticket": "...", "token": null}   → TOTP required
+    - {"captcha_key": [...], "captcha_sitekey": "..."} → captcha — returned only
+                                                          when solver is disabled
+                                                          or solve failed
     """
+    from curl_cffi.requests import AsyncSession
+
     settings = get_settings()
     api_url = f"{settings.discord_api_base}/auth/login"
-    ua = settings.discord_user_agent
-    headers = _login_headers(ua)
-    timeout = ClientTimeout(total=settings.discord_http_timeout)
+    proxies = {"https": proxy_url, "http": proxy_url} if proxy_url else None
 
-    payload: dict[str, Any] = {
+    base_payload: dict[str, Any] = {
         "login": email,
         "password": password,
         "undelete": False,
         "login_source": None,
         "gift_code_sku_id": None,
     }
-    if captcha_key:
-        payload["captcha_key"] = captcha_key
-    if captcha_rqtoken:
-        payload["captcha_rqtoken"] = captcha_rqtoken
 
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            # Pre-flight — Discord uses this to associate the session with a real browser visit.
+        async with AsyncSession(impersonate="chrome124") as session:
+            # Pre-flight — associates session cookies with a real browser visit
             try:
-                await session.get("https://discord.com/login", proxy=proxy_url, headers={"User-Agent": ua})
-            except (ClientError, TimeoutError):
-                pass  # non-fatal; continue anyway
+                await session.get("https://discord.com/login", proxies=proxies)
+            except Exception:  # noqa: BLE001 — non-fatal
+                pass
+            await asyncio.sleep(1)
 
-            async with session.post(api_url, headers=headers, json=payload, proxy=proxy_url) as resp:
-                if resp.status not in (200, 400):
-                    logger.info("login_with_password unexpected status=%s", resp.status)
-                    return None
-                body = await resp.json()
-                if not isinstance(body, dict):
-                    return None
-                logger.info("login_with_password status=%s keys=%s", resp.status, list(body.keys()))
-    except (ClientError, TimeoutError) as exc:
-        logger.warning("login_with_password network error: %s", exc)
-        return None
-
-    # Auto-solve captcha and retry once.
-    if _retry and not captcha_key and body.get("captcha_sitekey"):
-        rqtoken = body.get("captcha_rqtoken", "")
-        solved = await maybe_solve_for_response(
-            body,
-            page_url_hint=settings.captcha_default_page_url,
-            proxy_url=proxy_url,
-        )
-        if solved:
-            logger.info("login_with_password: captcha solved, retrying")
-            return await login_with_password(
-                email,
-                password,
-                captcha_key=solved,
-                captcha_rqtoken=rqtoken,
-                proxy_url=proxy_url,
-                _retry=False,
+            # First login attempt
+            resp = await session.post(
+                api_url,
+                json=base_payload,
+                headers={"Content-Type": "application/json"},
+                proxies=proxies,
             )
-    return body
+            data: dict[str, Any] = resp.json()
+            logger.info(
+                "login_with_password status=%s keys=%s",
+                resp.status_code,
+                list(data.keys()) if isinstance(data, dict) else "?",
+            )
+
+            if resp.status_code not in (200, 400) or not isinstance(data, dict):
+                return None
+
+            # No captcha required → return directly
+            if "captcha_sitekey" not in data:
+                return data
+
+            # Solve captcha — still inside the same session (cookies intact)
+            sitekey = data.get("captcha_sitekey", "")
+            rqdata = data.get("captcha_rqdata", "") or None
+            rqtoken = data.get("captcha_rqtoken", "")
+            session_id = data.get("captcha_session_id", "")
+
+            logger.info(
+                "login_with_password captcha: sitekey=%.12s rqdata=%s rqtoken=%s session_id=%s",
+                sitekey, bool(rqdata), bool(rqtoken), bool(session_id),
+            )
+
+            solved = await solve_hcaptcha(
+                sitekey,
+                settings.captcha_default_page_url,
+                rqdata=rqdata,
+                proxy_url=proxy_url,
+            )
+            if not solved:
+                logger.warning("login_with_password: captcha solve failed/disabled")
+                return data  # surface captcha challenge to caller
+
+            logger.info("login_with_password: captcha solved, retrying in same session")
+
+            # Retry — only captcha_key + captcha_rqtoken.
+            # Reference (discord-farm/disc/login.py) never sends captcha_session_id.
+            retry_payload = {**base_payload, "captcha_key": solved}
+            if rqtoken:
+                retry_payload["captcha_rqtoken"] = rqtoken
+
+            await asyncio.sleep(1)
+            resp = await session.post(
+                api_url,
+                json=retry_payload,
+                headers={"Content-Type": "application/json"},
+                proxies=proxies,
+            )
+            data2: dict[str, Any] = resp.json()
+            logger.info(
+                "login_with_password (retry) status=%s keys=%s",
+                resp.status_code,
+                list(data2.keys()) if isinstance(data2, dict) else "?",
+            )
+            return data2 if isinstance(data2, dict) else None
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("login_with_password error: %s", exc)
+        return None
 
 
 async def mfa_totp(
