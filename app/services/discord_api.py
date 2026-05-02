@@ -32,6 +32,7 @@ def build_proxy_url(ip: str, port: str, login: str, password: str, scheme: str =
 
 def _x_super_properties(ua: str) -> str:
     """Base64-encoded JSON fingerprint Discord expects on every request."""
+    import uuid
     chrome_ver = "147.0.0.0"
     if "Chrome/" in ua:
         try:
@@ -47,18 +48,30 @@ def _x_super_properties(ua: str) -> str:
         "browser_user_agent": ua,
         "browser_version": chrome_ver,
         "os_version": "10",
-        "referrer": "",
-        "referring_domain": "",
+        "referrer": "https://www.google.com/",
+        "referring_domain": "www.google.com",
+        "search_engine": "google",
         "referrer_current": "",
         "referring_domain_current": "",
         "release_channel": "stable",
         "client_build_number": _CLIENT_BUILD_NUMBER,
         "client_event_source": None,
+        "client_launch_id": str(uuid.uuid4()),
+        "launch_signature": str(uuid.uuid4()),
+        "client_heartbeat_session_id": str(uuid.uuid4()),
         "client_app_state": "focused",
     }
     return base64.b64encode(
         _json.dumps(payload, separators=(",", ":")).encode()
     ).decode()
+
+
+# Per-process installation ID (stable within one session)
+import os as _os, base64 as _b64
+_INSTALLATION_ID = (
+    "1497753024896958545."
+    + _b64.urlsafe_b64encode(_os.urandom(16)).decode().rstrip("=")
+)
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -69,7 +82,8 @@ def _headers(token: str) -> dict[str, str]:
         "User-Agent": ua,
         "Content-Type": "application/json",
         "X-Super-Properties": _x_super_properties(ua),
-        "X-Discord-Locale": "ru",
+        "X-Installation-ID": _INSTALLATION_ID,
+        "X-Discord-Locale": "en-US",
         "X-Discord-Timezone": "Europe/Kiev",
         "X-Debug-Options": "bugReporterEnabled",
         "Origin": "https://discord.com",
@@ -545,28 +559,44 @@ async def join_invite(
             if isinstance(body, dict) and body.get("code") == 40002:
                 return {"_needs_verification": True}
 
-            # Auto-solve captcha and retry once.
+            # Auto-solve captcha — up to 3 rounds (Discord sometimes chains challenges).
             # IMPORTANT: for /invites, captcha token goes in X-Captcha-Key HEADER
             # (not in the body as captcha_key — that's only for /auth/login).
-            if isinstance(body, dict) and body.get("captcha_sitekey") and not captcha_key:
-                rqdata = body.get("captcha_rqdata") or None
-                logger.info("join_invite captcha: has_proxy=%s proxy_url_prefix=%s", bool(proxy_url), (proxy_url or "")[:30])
+            current_body = body
+            for _attempt in range(3):
+                if not (isinstance(current_body, dict) and current_body.get("captcha_sitekey")):
+                    break
+                rqdata = current_body.get("captcha_rqdata") or None
+                logger.info(
+                    "join_invite captcha attempt=%d has_proxy=%s",
+                    _attempt + 1, bool(proxy_url),
+                )
                 solved = await solve_hcaptcha(
-                    body["captcha_sitekey"],
+                    current_body["captcha_sitekey"],
                     f"https://discord.com/invite/{invite_code}",
                     rqdata=rqdata,
                     proxy_url=proxy_url,
                 )
-                if solved:
-                    logger.info("join_invite: captcha solved, retrying with X-Captcha-Key header")
-                    captcha_headers = {**post_headers, "X-Captcha-Key": solved}
-                    await asyncio.sleep(1)
-                    resp2 = await session.post(invite_url, json=base_payload, headers=captcha_headers, proxies=proxies)
-                    body2 = resp2.json() if resp2.text else {}
-                    if resp2.status_code in (200, 201):
-                        logger.info("join_invite OK (after captcha) code=%s", invite_code)
-                        return body2
-                    logger.info("join_invite retry status=%s body=%.200s", resp2.status_code, str(body2))
+                if not solved:
+                    logger.warning("join_invite: captcha solve failed at attempt %d", _attempt + 1)
+                    break
+                rqtoken = current_body.get("captcha_rqtoken", "")
+                logger.info("join_invite: captcha solved attempt=%d, retrying with X-Captcha-Key + X-Captcha-Rqtoken headers", _attempt + 1)
+                # Both X-Captcha-Key AND X-Captcha-Rqtoken go as headers.
+                # Body must be {} (empty) — confirmed from browser DevTools.
+                captcha_headers = {**post_headers, "X-Captcha-Key": solved}
+                if rqtoken:
+                    captcha_headers["X-Captcha-Rqtoken"] = rqtoken
+                await asyncio.sleep(1)
+                resp_n = await session.post(invite_url, json={}, headers=captcha_headers, proxies=proxies)
+                body_n = resp_n.json() if resp_n.text else {}
+                if resp_n.status_code in (200, 201):
+                    logger.info("join_invite OK (after captcha attempt=%d) code=%s", _attempt + 1, invite_code)
+                    return body_n
+                logger.info("join_invite attempt=%d status=%s body=%.200s", _attempt + 1, resp_n.status_code, str(body_n))
+                if isinstance(body_n, dict) and body_n.get("code") == 40002:
+                    return {"_needs_verification": True}
+                current_body = body_n  # use fresh challenge for next attempt
 
         return None
     except Exception as exc:  # noqa: BLE001
