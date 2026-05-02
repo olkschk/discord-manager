@@ -131,8 +131,8 @@ async def _solve_anticaptcha_style(
     create_payload = {"clientKey": api_key, "task": task}
     provider_host = base_url.split("//")[-1].split("/")[0]
     logger.info(
-        "captcha createTask provider=%s type=HCaptchaTaskProxyless sitekey=%.12s enterprise=%s",
-        provider_host, sitekey, is_enterprise,
+        "captcha createTask provider=%s type=%s sitekey=%.12s enterprise=%s",
+        provider_host, task["type"], sitekey, is_enterprise,
     )
 
     timeout = ClientTimeout(total=settings.captcha_timeout)
