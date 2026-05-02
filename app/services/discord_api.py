@@ -496,6 +496,11 @@ async def join_invite(
                     proxies=proxies,
                 )
                 invite_info = preflight_resp.json() if preflight_resp.text else {}
+                if preflight_resp.status_code != 200:
+                    logger.info(
+                        "join_invite preflight status=%s body=%.200s",
+                        preflight_resp.status_code, str(invite_info),
+                    )
                 guild_id = invite_info.get("guild_id") or (invite_info.get("guild") or {}).get("id", "")
                 channel = invite_info.get("channel") or {}
                 channel_id = channel.get("id", "")
