@@ -229,8 +229,21 @@ async def login_by_mail(account_id: str) -> dict:
             except ValueError:
                 proxy_url = None
 
+    # Decrypt 2FA secret if present — passed to login_with_password so MFA
+    # is completed inside the same curl_cffi session as the login.
+    two_fa_secret: str | None = None
+    if acc.get("two_fa_secret"):
+        try:
+            two_fa_secret = decrypt(acc["two_fa_secret"])
+        except ValueError:
+            pass
+
     async def _do_login() -> dict | None:
-        return await login_with_password(acc["email"], password, proxy_url=proxy_url)
+        return await login_with_password(
+            acc["email"], password,
+            two_fa_secret=two_fa_secret,
+            proxy_url=proxy_url,
+        )
 
     out = await _do_login()
     if out is None:
@@ -254,25 +267,10 @@ async def login_by_mail(account_id: str) -> dict:
         out = retry
         token = out.get("token")
 
+    # MFA is now handled inside login_with_password (same curl_cffi session).
+    # If we still see mfa=True here, it means no 2FA secret was available.
     if not token and out.get("mfa"):
-        ticket = out.get("ticket")
-        if not ticket:
-            return {"ok": False, "error": "mfa_no_ticket", "steps": recovery_steps}
-        if not acc.get("two_fa_secret"):
-            return {"ok": False, "error": "mfa_required_but_no_secret", "steps": recovery_steps}
-        try:
-            secret = decrypt(acc["two_fa_secret"])
-        except ValueError:
-            return {"ok": False, "error": "two_fa_secret_unreadable", "steps": recovery_steps}
-        code = pyotp.TOTP(secret).now()
-        mfa_out = await mfa_totp(
-            ticket, code,
-            login_instance_id=out.get("login_instance_id"),
-            proxy_url=proxy_url,
-        )
-        if mfa_out is None:
-            return {"ok": False, "error": "mfa_failed", "steps": recovery_steps}
-        token = mfa_out.get("token")
+        return {"ok": False, "error": "mfa_required_but_no_secret", "steps": recovery_steps}
 
     if not token:
         if out.get("captcha_key"):

@@ -481,18 +481,20 @@ async def login_with_password(
     email: str,
     password: str,
     *,
+    two_fa_secret: str | None = None,
     proxy_url: str | None = None,
 ) -> dict[str, Any] | None:
     """POST /auth/login — mirrors the reference implementation exactly.
 
-    Uses curl_cffi AsyncSession(impersonate='chrome120') so Discord sees a real
-    Chrome TLS fingerprint. One session is kept alive for the ENTIRE flow
-    (pre-flight → login → captcha solve → retry → MFA is handled by the caller)
-    so Discord's session cookies survive the captcha round-trip.
+    Uses curl_cffi AsyncSession(impersonate='chrome124') — ONE session for the
+    full flow: pre-flight → login → captcha solve → retry → MFA TOTP.
+    All steps share the same session cookies.
+
+    `two_fa_secret` — pyotp base32 secret; when supplied and Discord returns an
+    MFA ticket, the TOTP code is generated and submitted in the SAME session.
 
     Possible result shapes:
-    - {"token": "...", "user_id": "..."}              → success (no 2FA)
-    - {"mfa": True, "ticket": "...", "token": null}   → TOTP required
+    - {"token": "...", "user_id": "..."}              → success
     - {"captcha_key": [...], "captcha_sitekey": "..."} → captcha — returned only
                                                           when solver is disabled
                                                           or solve failed
@@ -537,9 +539,9 @@ async def login_with_password(
             if resp.status_code not in (200, 400) or not isinstance(data, dict):
                 return None
 
-            # No captcha required → return directly
+            # No captcha required → check for MFA, then return
             if "captcha_sitekey" not in data:
-                return data
+                return await _complete_mfa_in_session(session, data, two_fa_secret, proxies, settings)
 
             # Solve captcha — still inside the same session (cookies intact)
             sitekey = data.get("captcha_sitekey", "")
@@ -583,11 +585,64 @@ async def login_with_password(
                 resp.status_code,
                 list(data2.keys()) if isinstance(data2, dict) else "?",
             )
-            return data2 if isinstance(data2, dict) else None
+            if not isinstance(data2, dict):
+                return None
+
+            # Handle MFA after captcha retry (same session)
+            return await _complete_mfa_in_session(session, data2, two_fa_secret, proxies, settings)
 
     except Exception as exc:  # noqa: BLE001
         logger.warning("login_with_password error: %s", exc)
         return None
+
+
+async def _complete_mfa_in_session(
+    session: Any,
+    data: dict[str, Any],
+    two_fa_secret: str | None,
+    proxies: dict | None,
+    settings: Any,
+) -> dict[str, Any] | None:
+    """If `data` is an MFA challenge and we have the 2FA secret, complete TOTP
+    in the existing curl_cffi session (required — Discord ties the MFA to the
+    login session cookies)."""
+    import pyotp
+
+    if not (data.get("mfa") and data.get("ticket")):
+        return data  # no MFA, or no ticket — return as-is
+
+    if not two_fa_secret:
+        logger.info("login_with_password: MFA required but no 2FA secret provided")
+        return data  # caller will see mfa=True and handle manually
+
+    ticket = data["ticket"]
+    login_instance_id = data.get("login_instance_id")
+    code = pyotp.TOTP(two_fa_secret).now()
+
+    mfa_payload: dict[str, Any] = {
+        "code": code,
+        "ticket": ticket,
+        "login_source": None,
+        "gift_code_sku_id": None,
+    }
+    if login_instance_id:
+        mfa_payload["login_instance_id"] = login_instance_id
+
+    mfa_headers = {
+        "Content-Type": "application/json",
+        "Referer": "https://discord.com/login",
+    }
+
+    await asyncio.sleep(1)
+    resp = await session.post(
+        f"{settings.discord_api_base}/auth/mfa/totp",
+        json=mfa_payload,
+        headers=mfa_headers,
+        proxies=proxies,
+    )
+    mfa_data = resp.json()
+    logger.info("login_with_password MFA status=%s keys=%s", resp.status_code, list(mfa_data.keys()) if isinstance(mfa_data, dict) else "?")
+    return mfa_data if isinstance(mfa_data, dict) else None
 
 
 async def mfa_totp(
