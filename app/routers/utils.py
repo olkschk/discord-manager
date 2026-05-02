@@ -186,39 +186,35 @@ async def join_server(body: JoinServerBody) -> dict:
         acc, token, proxy_url = resolved
         logger.info("join_server acc=%s has_proxy=%s proxy_url_prefix=%s", acc_id, bool(proxy_url), (proxy_url or "")[:30])
 
-        # Check if account needs email verification (code 40002)
-        if await check_needs_verification(token, proxy_url=proxy_url):
-            logger.info("join_server: account %s needs email verification", acc_id)
+        async def _try_join(tok: str) -> dict | None:
+            c = await gateway_pool.get_or_create(acc_id)
+            return await join_invite(tok, code, session_id=c.session_id if c else None, proxy_url=proxy_url)
+
+        out = await _try_join(token)
+
+        # 40002 — account needs email verification; verify via IMAP then retry
+        if isinstance(out, dict) and out.get("_needs_verification"):
+            logger.info("join_server: account %s needs email verification (40002)", acc_id)
             try:
                 mail_password = decrypt(acc["password"])
             except (ValueError, KeyError):
                 results.append({"account_id": acc_id, "ok": False, "error": "password_unreadable"})
                 continue
-            new_token = await full_verify_account(
-                token, acc["email"], mail_password, proxy_url=proxy_url
-            )
+            new_token = await full_verify_account(token, acc["email"], mail_password, proxy_url=proxy_url)
             if not new_token:
                 results.append({"account_id": acc_id, "ok": False, "error": "verify_failed"})
                 continue
-            # Persist the new token if Discord rotated it
             if new_token != token:
                 await discords().update_one(
                     {"_id": ObjectId(acc_id)},
                     {"$set": {"discord_token": encrypt(new_token), "token_valid": True}},
                 )
                 token = new_token
+            out = await _try_join(token)
 
-        # Open (or reuse) gateway connection — provides the session_id Discord wants
-        conn = await gateway_pool.get_or_create(acc_id)
-        session_id = conn.session_id if conn else None
-
-        out = await join_invite(token, code, session_id=session_id, proxy_url=proxy_url)
-        ok = out is not None
+        ok = bool(out) and not (isinstance(out, dict) and out.get("_needs_verification"))
         if ok:
-            await discords().update_one(
-                {"_id": ObjectId(acc_id)},
-                {"$set": {"joined_server": True}},
-            )
+            await discords().update_one({"_id": ObjectId(acc_id)}, {"$set": {"joined_server": True}})
         results.append({"account_id": acc_id, "ok": ok})
 
     return {"results": results}

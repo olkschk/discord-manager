@@ -501,6 +501,9 @@ async def join_invite(
                         "join_invite preflight status=%s body=%.200s",
                         preflight_resp.status_code, str(invite_info),
                     )
+                    # 40002 on preflight = unverified account — signal back to router
+                    if isinstance(invite_info, dict) and invite_info.get("code") == 40002:
+                        return {"_needs_verification": True}
                 guild_id = invite_info.get("guild_id") or (invite_info.get("guild") or {}).get("id", "")
                 channel = invite_info.get("channel") or {}
                 channel_id = channel.get("id", "")
@@ -534,15 +537,19 @@ async def join_invite(
                 return body
 
             logger.info(
-                "join_invite status=%s code=%s body_keys=%s",
-                resp.status_code, invite_code,
-                list(body.keys()) if isinstance(body, dict) else None,
+                "join_invite status=%s code=%s body=%.200s",
+                resp.status_code, invite_code, str(body),
             )
 
-            # Auto-solve captcha and retry once
+            # Surface 40002 (unverified account) so the router can trigger verification
+            if isinstance(body, dict) and body.get("code") == 40002:
+                return {"_needs_verification": True}
+
+            # Auto-solve captcha and retry once.
+            # IMPORTANT: for /invites, captcha token goes in X-Captcha-Key HEADER
+            # (not in the body as captcha_key — that's only for /auth/login).
             if isinstance(body, dict) and body.get("captcha_sitekey") and not captcha_key:
                 rqdata = body.get("captcha_rqdata") or None
-                rqtoken = body.get("captcha_rqtoken", "")
                 logger.info("join_invite captcha: has_proxy=%s proxy_url_prefix=%s", bool(proxy_url), (proxy_url or "")[:30])
                 solved = await solve_hcaptcha(
                     body["captcha_sitekey"],
@@ -551,12 +558,10 @@ async def join_invite(
                     proxy_url=proxy_url,
                 )
                 if solved:
-                    logger.info("join_invite: captcha solved, retrying")
-                    retry_payload = {**base_payload, "captcha_key": solved}
-                    if rqtoken:
-                        retry_payload["captcha_rqtoken"] = rqtoken
+                    logger.info("join_invite: captcha solved, retrying with X-Captcha-Key header")
+                    captcha_headers = {**post_headers, "X-Captcha-Key": solved}
                     await asyncio.sleep(1)
-                    resp2 = await session.post(invite_url, json=retry_payload, headers=post_headers, proxies=proxies)
+                    resp2 = await session.post(invite_url, json=base_payload, headers=captcha_headers, proxies=proxies)
                     body2 = resp2.json() if resp2.text else {}
                     if resp2.status_code in (200, 201):
                         logger.info("join_invite OK (after captcha) code=%s", invite_code)
