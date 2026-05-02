@@ -113,6 +113,93 @@ async def validate_token(
         return False, None
 
 
+async def check_needs_verification(
+    token: str,
+    *,
+    proxy_url: str | None = None,
+) -> bool:
+    """GET /users/@me/referrals/eligibility — returns True if the account needs
+    email verification (code 40002)."""
+    settings = get_settings()
+    url = f"{settings.discord_api_base}/users/@me/referrals/eligibility"
+    timeout = ClientTimeout(total=settings.discord_http_timeout)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            async with s.get(url, headers=_headers(token), proxy=proxy_url) as resp:
+                if resp.status == 400:
+                    data = await resp.json()
+                    return isinstance(data, dict) and data.get("code") == 40002
+                return False
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("check_needs_verification error: %s", exc)
+        return False
+
+
+async def verify_resend(
+    token: str,
+    *,
+    proxy_url: str | None = None,
+) -> bool:
+    """POST /auth/verify/resend — trigger Discord to send a verification email."""
+    settings = get_settings()
+    url = f"{settings.discord_api_base}/auth/verify/resend"
+    timeout = ClientTimeout(total=settings.discord_http_timeout)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            async with s.post(url, headers=_headers(token), proxy=proxy_url) as resp:
+                ok = resp.status < 400
+                logger.info("verify_resend status=%s", resp.status)
+                return ok
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("verify_resend error: %s", exc)
+        return False
+
+
+async def verify_with_token(
+    auth_token: str,
+    verify_token: str,
+    *,
+    proxy_url: str | None = None,
+    _retry: bool = True,
+) -> dict[str, Any] | None:
+    """POST /auth/verify {token} — confirm email ownership.
+    Auto-solves captcha if challenged. Returns Discord response (may contain new auth token)."""
+    settings = get_settings()
+    url = f"{settings.discord_api_base}/auth/verify"
+    payload: dict[str, Any] = {"token": verify_token}
+    timeout = ClientTimeout(total=settings.discord_http_timeout)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            async with s.post(url, headers=_headers(auth_token), json=payload, proxy=proxy_url) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return data
+                if _retry and isinstance(data, dict) and data.get("captcha_sitekey"):
+                    rqdata = data.get("captcha_rqdata") or None
+                    rqtoken = data.get("captcha_rqtoken", "")
+                    solved = await solve_hcaptcha(
+                        data["captcha_sitekey"],
+                        "https://discord.com/verify",
+                        rqdata=rqdata,
+                        proxy_url=proxy_url,
+                    )
+                    if solved:
+                        retry_payload = {**payload, "captcha_key": solved}
+                        if rqtoken:
+                            retry_payload["captcha_rqtoken"] = rqtoken
+                        async with s.post(url, headers=_headers(auth_token), json=retry_payload, proxy=proxy_url) as r2:
+                            data2 = await r2.json()
+                            if r2.status == 200:
+                                return data2
+                            logger.info("verify_with_token captcha retry status=%s body=%.200s", r2.status, str(data2))
+                            return None
+                logger.info("verify_with_token status=%s body=%.200s", resp.status, str(data))
+                return None
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("verify_with_token error: %s", exc)
+        return None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase-2 actions (chat / reactions / profile / invite / mfa)
 # ─────────────────────────────────────────────────────────────────────────────

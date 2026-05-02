@@ -153,6 +153,81 @@ async def find_and_authorize_ip(
     return False
 
 
+async def full_verify_account(
+    auth_token: str,
+    email: str,
+    mail_password: str,
+    *,
+    proxy_url: str | None = None,
+) -> str | None:
+    """Verify Discord account email via IMAP.
+
+    Flow:
+    1. POST /auth/verify/resend — triggers verification email
+    2. Wait 7s then poll IMAP for the email with a discord.com/verify link
+    3. Follow click.discord.com redirect → extract token from #token= fragment
+    4. POST /auth/verify {token} — with captcha auto-solve if needed
+    5. Returns the NEW Discord auth token on success (Discord rotates it), or None.
+    """
+    from app.services.discord_api import verify_resend, verify_with_token
+
+    logger.info("full_verify_account: sending verification email to %s", email)
+
+    if not await verify_resend(auth_token, proxy_url=proxy_url):
+        logger.warning("full_verify_account: verify/resend failed")
+        return None
+
+    # Wait for email, then try multiple times
+    import asyncio
+    await asyncio.sleep(7)
+
+    for attempt in range(4):
+        if attempt > 0:
+            await asyncio.sleep(5)
+        try:
+            entries = await fetch_recent(email, mail_password, limit=10, only_discord=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("full_verify_account IMAP error: %s", exc)
+            continue
+
+        for e in entries:
+            link = e.get("link")
+            if not link:
+                continue
+            # Follow the click link → we need discord.com/verify#token= (not authorize-ip)
+            from curl_cffi.requests import AsyncSession
+            settings = get_settings()
+            proxies = {"https": proxy_url, "http": proxy_url} if proxy_url else None
+            final_url = link
+            try:
+                async with AsyncSession(impersonate="chrome124") as s:
+                    resp = await s.get(link, proxies=proxies, allow_redirects=True)
+                    final_url = str(resp.url)
+            except Exception:  # noqa: BLE001
+                pass
+
+            logger.info("full_verify_account link → %s", final_url[:120])
+            if "verify" not in final_url:
+                continue
+
+            token = extract_token_from_url(final_url)
+            if not token:
+                continue
+
+            result = await verify_with_token(auth_token, token, proxy_url=proxy_url)
+            if result and isinstance(result, dict):
+                new_token = result.get("token")
+                if new_token:
+                    logger.info("full_verify_account: email verified, new token received")
+                    return new_token
+                # 200 but no token — verification still succeeded
+                logger.info("full_verify_account: verified (no token rotation)")
+                return auth_token
+
+    logger.warning("full_verify_account: no verify link found after retries")
+    return None
+
+
 async def forgot_password(
     email: str, *, proxy_url: str | None = None
 ) -> bool:

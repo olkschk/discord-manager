@@ -13,7 +13,14 @@ from app.security import decrypt, encrypt, require_login
 from app.services import gateway_pool
 from app.services.account_helpers import load_account_token_and_proxy
 from app.services.ai_client import generate_identity
-from app.services.discord_api import check_username as _check_username, enable_mfa, join_invite, patch_profile
+from app.services.auth_recovery import full_verify_account
+from app.services.discord_api import (
+    check_needs_verification,
+    check_username as _check_username,
+    enable_mfa,
+    join_invite,
+    patch_profile,
+)
 
 router = APIRouter(
     prefix="/api/utils",
@@ -178,6 +185,28 @@ async def join_server(body: JoinServerBody) -> dict:
             continue
         acc, token, proxy_url = resolved
         logger.info("join_server acc=%s has_proxy=%s proxy_url_prefix=%s", acc_id, bool(proxy_url), (proxy_url or "")[:30])
+
+        # Check if account needs email verification (code 40002)
+        if await check_needs_verification(token, proxy_url=proxy_url):
+            logger.info("join_server: account %s needs email verification", acc_id)
+            try:
+                mail_password = decrypt(acc["password"])
+            except (ValueError, KeyError):
+                results.append({"account_id": acc_id, "ok": False, "error": "password_unreadable"})
+                continue
+            new_token = await full_verify_account(
+                token, acc["email"], mail_password, proxy_url=proxy_url
+            )
+            if not new_token:
+                results.append({"account_id": acc_id, "ok": False, "error": "verify_failed"})
+                continue
+            # Persist the new token if Discord rotated it
+            if new_token != token:
+                await discords().update_one(
+                    {"_id": ObjectId(acc_id)},
+                    {"$set": {"discord_token": encrypt(new_token), "token_valid": True}},
+                )
+                token = new_token
 
         # Open (or reuse) gateway connection — provides the session_id Discord wants
         conn = await gateway_pool.get_or_create(acc_id)
