@@ -413,8 +413,12 @@ async def join_invite(
                 channel = invite_info.get("channel") or {}
                 channel_id = channel.get("id", "")
                 channel_type = channel.get("type", 0)
-            except Exception:  # noqa: BLE001
-                pass
+                logger.info(
+                    "join_invite preflight status=%s guild_id=%s channel_id=%s",
+                    preflight_resp.status_code, guild_id, channel_id,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("join_invite preflight error: %s", e)
             await asyncio.sleep(1)
 
             # x-context-properties — required by Discord for invite joins
