@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Discord build number used in X-Super-Properties.
 # Update this if Discord starts rejecting the fingerprint.
-_CLIENT_BUILD_NUMBER = 537475
+_CLIENT_BUILD_NUMBER = 538030
 
 
 def build_proxy_url(ip: str, port: str, login: str, password: str, scheme: str = "http") -> str:
@@ -32,8 +32,7 @@ def build_proxy_url(ip: str, port: str, login: str, password: str, scheme: str =
 
 def _x_super_properties(ua: str) -> str:
     """Base64-encoded JSON fingerprint Discord expects on every request."""
-    # Extract Chrome version from UA string or fall back to fixed version.
-    chrome_ver = "120.0.0.0"
+    chrome_ver = "147.0.0.0"
     if "Chrome/" in ua:
         try:
             chrome_ver = ua.split("Chrome/")[1].split(" ")[0]
@@ -43,15 +42,19 @@ def _x_super_properties(ua: str) -> str:
         "os": "Windows",
         "browser": "Chrome",
         "device": "",
-        "system_locale": "en-US",
+        "system_locale": "ru-RU",
+        "has_client_mods": False,
         "browser_user_agent": ua,
         "browser_version": chrome_ver,
         "os_version": "10",
-        "referrer": "https://discord.com/",
-        "referring_domain": "discord.com",
+        "referrer": "",
+        "referring_domain": "",
+        "referrer_current": "",
+        "referring_domain_current": "",
         "release_channel": "stable",
         "client_build_number": _CLIENT_BUILD_NUMBER,
         "client_event_source": None,
+        "client_app_state": "focused",
     }
     return base64.b64encode(
         _json.dumps(payload, separators=(",", ":")).encode()
@@ -66,7 +69,9 @@ def _headers(token: str) -> dict[str, str]:
         "User-Agent": ua,
         "Content-Type": "application/json",
         "X-Super-Properties": _x_super_properties(ua),
-        "X-Discord-Locale": "en-US",
+        "X-Discord-Locale": "ru",
+        "X-Discord-Timezone": "Europe/Kiev",
+        "X-Debug-Options": "bugReporterEnabled",
         "Origin": "https://discord.com",
         "Referer": "https://discord.com/channels/@me",
     }
@@ -376,7 +381,9 @@ async def join_invite(
 
     settings = get_settings()
     api = settings.discord_api_base
-    headers = _headers(token)
+    # Referer for invite join: /invite/{code}/login (as seen in real browser DevTools)
+    invite_page = f"https://discord.com/invite/{invite_code}"
+    headers = {**_headers(token), "Referer": f"{invite_page}/login"}
     proxies = {"https": proxy_url, "http": proxy_url} if proxy_url else None
     invite_url = f"{api}/invites/{invite_code}"
 
@@ -385,9 +392,12 @@ async def join_invite(
 
     try:
         async with AsyncSession(impersonate="chrome124") as session:
-            # Preflight GET — matches reference join_server.py pattern
+            # Preflight GET — get invite info (guild_id, channel_id) for x-context-properties
+            guild_id: str = ""
+            channel_id: str = ""
+            channel_type: int = 0
             try:
-                await session.get(
+                preflight_resp = await session.get(
                     invite_url,
                     params={
                         "inputValue": f"https://discord.gg/{invite_code}",
@@ -398,12 +408,29 @@ async def join_invite(
                     headers=headers,
                     proxies=proxies,
                 )
+                invite_info = preflight_resp.json() if preflight_resp.text else {}
+                guild_id = invite_info.get("guild_id") or (invite_info.get("guild") or {}).get("id", "")
+                channel = invite_info.get("channel") or {}
+                channel_id = channel.get("id", "")
+                channel_type = channel.get("type", 0)
             except Exception:  # noqa: BLE001
                 pass
             await asyncio.sleep(1)
 
+            # x-context-properties — required by Discord for invite joins
+            ctx_props = _json.dumps({
+                "location": "Accept Invite Page",
+                "location_guild_id": guild_id,
+                "location_channel_id": channel_id,
+                "location_channel_type": channel_type,
+            }, separators=(",", ":"))
+            post_headers = {
+                **headers,
+                "X-Context-Properties": base64.b64encode(ctx_props.encode()).decode(),
+            }
+
             # POST — accept invite
-            resp = await session.post(invite_url, json=base_payload, headers=headers, proxies=proxies)
+            resp = await session.post(invite_url, json=base_payload, headers=post_headers, proxies=proxies)
             body = resp.json() if resp.text else {}
 
             if resp.status_code in (200, 201):
@@ -432,7 +459,7 @@ async def join_invite(
                     if rqtoken:
                         retry_payload["captcha_rqtoken"] = rqtoken
                     await asyncio.sleep(1)
-                    resp2 = await session.post(invite_url, json=retry_payload, headers=headers, proxies=proxies)
+                    resp2 = await session.post(invite_url, json=retry_payload, headers=post_headers, proxies=proxies)
                     body2 = resp2.json() if resp2.text else {}
                     if resp2.status_code in (200, 201):
                         logger.info("join_invite OK (after captcha) code=%s", invite_code)
