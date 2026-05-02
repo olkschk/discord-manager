@@ -451,6 +451,7 @@ async def join_invite(
             if isinstance(body, dict) and body.get("captcha_sitekey") and not captcha_key:
                 rqdata = body.get("captcha_rqdata") or None
                 rqtoken = body.get("captcha_rqtoken", "")
+                logger.info("join_invite captcha: has_proxy=%s proxy_url_prefix=%s", bool(proxy_url), (proxy_url or "")[:30])
                 solved = await solve_hcaptcha(
                     body["captcha_sitekey"],
                     f"https://discord.com/invite/{invite_code}",

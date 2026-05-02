@@ -176,7 +176,8 @@ async def join_server(body: JoinServerBody) -> dict:
         if resolved is None:
             results.append({"account_id": acc_id, "ok": False, "error": "unreadable"})
             continue
-        _, token, proxy_url = resolved
+        acc, token, proxy_url = resolved
+        logger.info("join_server acc=%s has_proxy=%s proxy_url_prefix=%s", acc_id, bool(proxy_url), (proxy_url or "")[:30])
 
         # Open (or reuse) gateway connection — provides the session_id Discord wants
         conn = await gateway_pool.get_or_create(acc_id)
