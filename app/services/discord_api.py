@@ -628,10 +628,11 @@ async def _complete_mfa_in_session(
     if login_instance_id:
         mfa_payload["login_instance_id"] = login_instance_id
 
-    mfa_headers = {
-        "Content-Type": "application/json",
-        "Referer": "https://discord.com/login",
-    }
+    # Full headers without Authorization (matches reference login.py _build_headers("") pattern)
+    mfa_headers = _login_headers(settings.discord_user_agent)
+    # MFA endpoint doesn't use Origin and doesn't require the full login Referer path
+    mfa_headers["Referer"] = "https://discord.com/login"
+    mfa_headers.pop("Origin", None)
 
     await asyncio.sleep(1)
     resp = await session.post(
@@ -641,7 +642,12 @@ async def _complete_mfa_in_session(
         proxies=proxies,
     )
     mfa_data = resp.json()
-    logger.info("login_with_password MFA status=%s keys=%s", resp.status_code, list(mfa_data.keys()) if isinstance(mfa_data, dict) else "?")
+    logger.info(
+        "login_with_password MFA status=%s keys=%s body=%.200s",
+        resp.status_code,
+        list(mfa_data.keys()) if isinstance(mfa_data, dict) else "?",
+        str(mfa_data)[:200],
+    )
     return mfa_data if isinstance(mfa_data, dict) else None
 
 
