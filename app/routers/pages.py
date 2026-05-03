@@ -63,7 +63,7 @@ async def voice_page(
     user: str = Depends(require_login),
 ) -> HTMLResponse:
     accounts: list[dict] = []
-    async for acc in discords().find({"token_valid": True}).sort("_id", -1):
+    async for acc in discords().find({"token_valid": True, "joined_server": True}).sort("_id", -1):
         accounts.append(
             {
                 "id": str(acc["_id"]),
