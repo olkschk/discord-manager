@@ -412,17 +412,28 @@ document.getElementById("dmReplyForm").addEventListener("submit", async (e) => {
   const text = document.getElementById("dmReplyText").value.trim();
   const out = document.getElementById("dmReplyResult");
   if (!accountId || !text) return;
-  if (!activeDM.channelId) { out.className="result err"; out.textContent="No DM channel ID stored (needs re-monitor)"; return; }
   out.className="result"; out.textContent="Sending…";
+  // Pass channel_id if known; otherwise backend will auto-resolve via from_id
   const r = await fetch("/api/chat/private/reply", {
     method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ account_id: accountId, dm_channel_id: activeDM.channelId, content: text }),
+    body: JSON.stringify({
+      account_id: accountId,
+      dm_channel_id: activeDM.channelId || null,
+      sender_username: activeDM.from,
+      to: activeDM.to,
+      content: text,
+    }),
   });
   const d = await r.json().catch(()=>({}));
   if (r.ok && d.sent) {
     out.className="result ok"; out.textContent="Sent";
     document.getElementById("dmReplyText").value="";
-  } else { out.className="result err"; out.textContent="Failed"; }
+    // Update cached channel_id if resolved
+    if (d.channel_id) activeDM.channelId = d.channel_id;
+  } else {
+    out.className="result err";
+    out.textContent = d.error || "Failed";
+  }
 });
 
 // ── Unread badge + browser notifications ─────────────────────────────────────

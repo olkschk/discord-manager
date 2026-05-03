@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from app.database import messages as messages_coll, private_messages as private_messages_coll
 from app.security import require_login
 from app.services.account_helpers import load_account_token_and_proxy
-from app.services.discord_api import add_reaction, send_message, send_message_with_files
+from app.services.discord_api import add_reaction, get_or_create_dm_channel, send_message, send_message_with_files
 
 MAX_FILE_BYTES = 8 * 1024 * 1024  # Discord non-Nitro limit
 
@@ -291,18 +291,55 @@ async def unread_count() -> dict:
 
 class DMReplyBody(BaseModel):
     account_id: str
-    dm_channel_id: str
+    dm_channel_id: str | None = None   # may be missing for old DMs
+    sender_username: str | None = None  # used to look up from_id when channel unknown
+    to: str | None = None               # account email to identify which account received the DM
     content: str = Field(..., min_length=1, max_length=2000)
 
 
 @router.post("/private/reply")
 async def reply_dm(body: DMReplyBody) -> dict:
-    """Send a DM reply using the stored dm_channel_id."""
+    """Send a DM reply.
+
+    If dm_channel_id is missing (old messages stored before Phase-5), we look up
+    the sender's Discord user_id from stored private_messages and call
+    POST /users/@me/channels to get/create the DM channel automatically.
+    """
     resolved = await load_account_token_and_proxy(body.account_id)
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
-    msg = await send_message(token, body.dm_channel_id, body.content, proxy_url=proxy_url)
+
+    channel_id = body.dm_channel_id
+
+    # Auto-resolve channel when missing
+    if not channel_id:
+        from_id: str | None = None
+        # Try to find from_id in stored messages for this conversation
+        if body.sender_username and body.to:
+            stored = await private_messages_coll().find_one(
+                {"from": body.sender_username, "to": body.to, "from_id": {"$exists": True}},
+                sort=[("_id", -1)],
+            )
+            if stored:
+                from_id = stored.get("from_id")
+
+        if not from_id:
+            return {"sent": False, "error": "dm_channel_id missing and from_id not stored — wait for next DM monitor cycle"}
+
+        channel_id = await get_or_create_dm_channel(token, from_id, proxy_url=proxy_url)
+        if not channel_id:
+            return {"sent": False, "error": "could not create DM channel"}
+
+        # Persist for future replies
+        if body.sender_username and body.to:
+            await private_messages_coll().update_many(
+                {"from": body.sender_username, "to": body.to},
+                {"$set": {"dm_channel_id": channel_id}},
+            )
+        logger.info("reply_dm: resolved channel_id=%s for sender=%s", channel_id, body.sender_username)
+
+    msg = await send_message(token, channel_id, body.content, proxy_url=proxy_url)
     if msg is None:
         return {"sent": False}
-    return {"sent": True, "message_id": msg.get("id")}
+    return {"sent": True, "message_id": msg.get("id"), "channel_id": channel_id}

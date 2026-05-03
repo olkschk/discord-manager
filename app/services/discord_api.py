@@ -169,6 +169,36 @@ async def verify_resend(
         return False
 
 
+async def get_or_create_dm_channel(
+    token: str,
+    recipient_id: str,
+    *,
+    proxy_url: str | None = None,
+) -> str | None:
+    """POST /users/@me/channels {recipient_id} — get or create a 1:1 DM channel.
+    Returns the channel id string, or None on failure.
+    """
+    settings = get_settings()
+    url = f"{settings.discord_api_base}/users/@me/channels"
+    timeout = ClientTimeout(total=settings.discord_http_timeout)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            async with s.post(
+                url,
+                headers=_headers(token),
+                json={"recipient_id": recipient_id},
+                proxy=proxy_url,
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("id")
+                logger.info("get_or_create_dm_channel status=%s", resp.status)
+                return None
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("get_or_create_dm_channel error: %s", exc)
+        return None
+
+
 async def verify_with_token(
     auth_token: str,
     verify_token: str,
