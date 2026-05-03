@@ -1,18 +1,21 @@
-"""Chat: send / reply, react, list stored topic messages."""
+"""Chat: send / reply, react, scheduled messages, private messages."""
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
+from datetime import datetime, timezone
 
+from bson import ObjectId
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
-from app.database import messages as messages_coll
+from app.database import messages as messages_coll, private_messages as private_messages_coll
 from app.security import require_login
 from app.services.account_helpers import load_account_token_and_proxy
 from app.services.discord_api import add_reaction, send_message, send_message_with_files
 
-# Discord limit for non-Nitro accounts (per attachment, total uploads).
-MAX_FILE_BYTES = 8 * 1024 * 1024  # 8 MB
+MAX_FILE_BYTES = 8 * 1024 * 1024  # Discord non-Nitro limit
 
 router = APIRouter(
     prefix="/api/chat",
@@ -22,6 +25,7 @@ router = APIRouter(
 logger = logging.getLogger(__name__)
 
 
+# ── Send ──────────────────────────────────────────────────────────────────────
 class SendBody(BaseModel):
     account_id: str
     channel_id: str
@@ -35,10 +39,7 @@ async def send(body: SendBody) -> dict:
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
-
-    msg = await send_message(
-        token, body.channel_id, body.content, reply_to=body.reply_to, proxy_url=proxy_url
-    )
+    msg = await send_message(token, body.channel_id, body.content, reply_to=body.reply_to, proxy_url=proxy_url)
     if msg is None:
         return {"sent": False}
     return {"sent": True, "message_id": msg.get("id")}
@@ -52,12 +53,10 @@ class DuplicateBody(BaseModel):
 
 @router.post("/duplicate")
 async def duplicate(body: DuplicateBody) -> dict:
-    """Send the same content to N channels using one account."""
     resolved = await load_account_token_and_proxy(body.account_id)
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
-
     results: list[dict] = []
     for cid in body.channel_ids:
         msg = await send_message(token, cid, body.content, proxy_url=proxy_url)
@@ -65,11 +64,12 @@ async def duplicate(body: DuplicateBody) -> dict:
     return {"results": results}
 
 
+# ── React (single) ────────────────────────────────────────────────────────────
 class ReactBody(BaseModel):
     account_id: str
     channel_id: str
     message_id: str
-    emoji: str  # raw unicode emoji or 'name:id' for custom emoji
+    emoji: str
 
 
 @router.post("/react")
@@ -78,13 +78,38 @@ async def react(body: ReactBody) -> dict:
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
-
-    ok = await add_reaction(
-        token, body.channel_id, body.message_id, body.emoji, proxy_url=proxy_url
-    )
+    ok = await add_reaction(token, body.channel_id, body.message_id, body.emoji, proxy_url=proxy_url)
     return {"ok": ok}
 
 
+# ── Bulk React (Utils section) ────────────────────────────────────────────────
+class BulkReactBody(BaseModel):
+    account_ids: list[str] = Field(..., min_length=1)
+    channel_id: str
+    message_id: str
+    emoji: str
+    delay_min: float = Field(0, ge=0, le=60)
+    delay_max: float = Field(0, ge=0, le=60)
+
+
+@router.post("/react-bulk")
+async def react_bulk(body: BulkReactBody) -> dict:
+    """Add the same reaction from N accounts with optional random delay."""
+    results: list[dict] = []
+    for i, acc_id in enumerate(body.account_ids):
+        if i > 0 and body.delay_max > 0:
+            await asyncio.sleep(random.uniform(body.delay_min, body.delay_max))
+        resolved = await load_account_token_and_proxy(acc_id)
+        if resolved is None:
+            results.append({"account_id": acc_id, "ok": False, "error": "unreadable"})
+            continue
+        _, token, proxy_url = resolved
+        ok = await add_reaction(token, body.channel_id, body.message_id, body.emoji, proxy_url=proxy_url)
+        results.append({"account_id": acc_id, "ok": ok})
+    return {"results": results}
+
+
+# ── Send with file ────────────────────────────────────────────────────────────
 @router.post("/send-with-file")
 async def send_with_file(
     account_id: str = Form(...),
@@ -93,60 +118,191 @@ async def send_with_file(
     reply_to: str | None = Form(None),
     files: list[UploadFile] = File(default_factory=list),
 ) -> dict:
-    """Multipart variant of /send — accepts attachments.
-
-    If no file is supplied, falls back to the JSON path so the front-end can
-    use this single endpoint for both cases.
-    """
     if not files and not content.strip():
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "Either content or at least one file is required"
-        )
-
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Either content or a file is required")
     resolved = await load_account_token_and_proxy(account_id)
     if resolved is None:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, "Account not found or token unreadable"
-        )
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
-
     blobs: list[tuple[str, bytes, str | None]] = []
     for f in files:
         blob = await f.read()
         if len(blob) > MAX_FILE_BYTES:
-            raise HTTPException(
-                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                f"{f.filename}: too large ({len(blob)} bytes; Discord limit is 8 MB)",
-            )
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"{f.filename}: too large (max 8 MB)")
         blobs.append((f.filename or "file", blob, f.content_type))
-
     if not blobs:
-        msg = await send_message(
-            token, channel_id, content, reply_to=reply_to, proxy_url=proxy_url
-        )
+        msg = await send_message(token, channel_id, content, reply_to=reply_to, proxy_url=proxy_url)
     else:
-        msg = await send_message_with_files(
-            token, channel_id, content, blobs, reply_to=reply_to, proxy_url=proxy_url
-        )
-
+        msg = await send_message_with_files(token, channel_id, content, blobs, reply_to=reply_to, proxy_url=proxy_url)
     if msg is None:
         return {"sent": False}
     return {"sent": True, "message_id": msg.get("id"), "files": len(blobs)}
 
 
+# ── Scheduled messages ────────────────────────────────────────────────────────
+from app.database import db as _db  # noqa: E402
+
+
+def scheduled_messages():
+    return _db()["scheduled_messages"]
+
+
+class ScheduleBody(BaseModel):
+    account_id: str
+    channel_id: str
+    content: str = Field(..., min_length=1, max_length=2000)
+    reply_to: str | None = None
+    scheduled_at: str  # ISO datetime string
+
+
+@router.post("/schedule")
+async def schedule_message(body: ScheduleBody) -> dict:
+    """Save a message to be sent at `scheduled_at` (ISO UTC datetime)."""
+    try:
+        ts = datetime.fromisoformat(body.scheduled_at.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid scheduled_at format (ISO 8601 required)")
+    if ts <= datetime.now(timezone.utc):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "scheduled_at must be in the future")
+    res = await scheduled_messages().insert_one({
+        "account_id": body.account_id,
+        "channel_id": body.channel_id,
+        "content": body.content,
+        "reply_to": body.reply_to,
+        "scheduled_at": ts,
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc),
+    })
+    return {"id": str(res.inserted_id), "scheduled_at": ts.isoformat()}
+
+
+@router.get("/scheduled")
+async def list_scheduled() -> list[dict]:
+    out: list[dict] = []
+    async for m in scheduled_messages().find({"status": "pending"}).sort("scheduled_at", 1):
+        out.append({
+            "id": str(m["_id"]),
+            "account_id": m.get("account_id"),
+            "channel_id": m.get("channel_id"),
+            "content": m.get("content", ""),
+            "scheduled_at": m["scheduled_at"].isoformat() if m.get("scheduled_at") else None,
+        })
+    return out
+
+
+@router.delete("/scheduled/{msg_id}")
+async def cancel_scheduled(msg_id: str) -> dict:
+    if not ObjectId.is_valid(msg_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid id")
+    res = await scheduled_messages().update_one(
+        {"_id": ObjectId(msg_id), "status": "pending"},
+        {"$set": {"status": "cancelled"}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found or already sent")
+    return {"cancelled": True}
+
+
+# ── Topic messages ────────────────────────────────────────────────────────────
 @router.get("/topic/{topic_id}/messages")
 async def list_topic_messages(topic_id: str) -> list[dict]:
-    """Last 100 stored messages for a topic (populated by Phase-3 monitoring loop)."""
     cursor = messages_coll().find({"topic": topic_id}).sort("timestamp", -1).limit(100)
     out: list[dict] = []
     async for m in cursor:
-        out.append(
-            {
-                "id": str(m["_id"]),
-                "text": m.get("text", ""),
-                "image": m.get("image"),
-                "from": m.get("from") or m.get("sender"),
-                "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else None,
-            }
-        )
-    return list(reversed(out))  # oldest-first for natural reading order
+        out.append({
+            "id": str(m["_id"]),
+            "text": m.get("text", ""),
+            "image": m.get("image"),
+            "from": m.get("from") or m.get("sender"),
+            "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else None,
+        })
+    return list(reversed(out))
+
+
+# ── Private messages (DMs) ────────────────────────────────────────────────────
+@router.get("/private/conversations")
+async def list_dm_conversations() -> list[dict]:
+    """List DM conversations grouped by sender, with unread count and last message."""
+    pipeline = [
+        {"$sort": {"timestamp": -1}},
+        {"$group": {
+            "_id": {"from": "$from", "to": "$to"},
+            "last_text": {"$first": "$text"},
+            "last_ts": {"$first": "$timestamp"},
+            "unread": {"$sum": {"$cond": [{"$eq": ["$is_read", False]}, 1, 0]}},
+            "dm_channel_id": {"$first": "$dm_channel_id"},
+            "from_id": {"$first": "$from_id"},
+        }},
+        {"$sort": {"last_ts": -1}},
+    ]
+    out: list[dict] = []
+    async for g in private_messages_coll().aggregate(pipeline):
+        out.append({
+            "from": g["_id"]["from"],
+            "to": g["_id"]["to"],
+            "last_text": g.get("last_text", ""),
+            "last_ts": g["last_ts"].isoformat() if g.get("last_ts") else None,
+            "unread": g.get("unread", 0),
+            "dm_channel_id": g.get("dm_channel_id"),
+            "from_id": g.get("from_id"),
+        })
+    return out
+
+
+@router.get("/private/messages")
+async def get_dm_messages(sender: str, to: str) -> list[dict]:
+    """Last 100 DM messages from a specific sender to a specific account email."""
+    cursor = private_messages_coll().find(
+        {"from": sender, "to": to}
+    ).sort("timestamp", -1).limit(100)
+    out: list[dict] = []
+    async for m in cursor:
+        out.append({
+            "id": str(m["_id"]),
+            "text": m.get("text", ""),
+            "image": m.get("image"),
+            "from": m.get("from"),
+            "to": m.get("to"),
+            "is_read": m.get("is_read", False),
+            "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else None,
+            "dm_channel_id": m.get("dm_channel_id"),
+        })
+    return list(reversed(out))
+
+
+@router.post("/private/mark-read")
+async def mark_dm_read(body: dict) -> dict:
+    """Mark all messages from a sender to an account as read."""
+    sender = body.get("sender", "")
+    to = body.get("to", "")
+    await private_messages_coll().update_many(
+        {"from": sender, "to": to, "is_read": False},
+        {"$set": {"is_read": True}},
+    )
+    return {"ok": True}
+
+
+@router.get("/private/unread-count")
+async def unread_count() -> dict:
+    """Total unread DM count across all accounts."""
+    count = await private_messages_coll().count_documents({"is_read": False})
+    return {"count": count}
+
+
+class DMReplyBody(BaseModel):
+    account_id: str
+    dm_channel_id: str
+    content: str = Field(..., min_length=1, max_length=2000)
+
+
+@router.post("/private/reply")
+async def reply_dm(body: DMReplyBody) -> dict:
+    """Send a DM reply using the stored dm_channel_id."""
+    resolved = await load_account_token_and_proxy(body.account_id)
+    if resolved is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
+    _, token, proxy_url = resolved
+    msg = await send_message(token, body.dm_channel_id, body.content, proxy_url=proxy_url)
+    if msg is None:
+        return {"sent": False}
+    return {"sent": True, "message_id": msg.get("id")}

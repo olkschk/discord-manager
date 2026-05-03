@@ -185,9 +185,12 @@ async def _dm_cycle() -> None:
                                 "text": m.get("content", ""),
                                 "image": image,
                                 "from": author.get("username") or "?",
+                                "from_id": author.get("id"),          # Discord user_id for replies
                                 "to": acc["email"],
+                                "dm_channel_id": cid,                 # channel to reply in
                                 "is_read": False,
                                 "discord_message_id": msg_id,
+                                "timestamp": _parse_iso(m.get("timestamp")),
                             }
                         )
         except (ClientError, TimeoutError) as exc:
@@ -206,6 +209,47 @@ async def _dm_loop() -> None:
         await asyncio.sleep(settings.monitor_dm_interval)
 
 
+# ── Scheduled message sender ─────────────────────────────────────────────────
+async def _scheduler_cycle() -> None:
+    from datetime import datetime, timezone
+    from bson import ObjectId
+    from app.database import db as _db
+    from app.services.account_helpers import load_account_token_and_proxy
+    from app.services.discord_api import send_message
+
+    now = datetime.now(timezone.utc)
+    coll = _db()["scheduled_messages"]
+
+    async for task in coll.find({"status": "pending", "scheduled_at": {"$lte": now}}):
+        acc_id = task.get("account_id", "")
+        resolved = await load_account_token_and_proxy(acc_id)
+        if resolved is None:
+            await coll.update_one({"_id": task["_id"]}, {"$set": {"status": "failed", "error": "unreadable"}})
+            continue
+        _, token, proxy_url = resolved
+        msg = await send_message(
+            token, task["channel_id"], task["content"],
+            reply_to=task.get("reply_to"), proxy_url=proxy_url,
+        )
+        if msg:
+            await coll.update_one({"_id": task["_id"]}, {"$set": {"status": "sent", "sent_at": now}})
+            logger.info("scheduler: sent message %s to channel %s", task["_id"], task["channel_id"])
+        else:
+            await coll.update_one({"_id": task["_id"]}, {"$set": {"status": "failed"}})
+            logger.warning("scheduler: failed to send message %s", task["_id"])
+
+
+async def _scheduler_loop() -> None:
+    while True:
+        try:
+            await _scheduler_cycle()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception("scheduler cycle failed")
+        await asyncio.sleep(30)  # check every 30 seconds
+
+
 # ── Lifecycle ────────────────────────────────────────────────────────────────
 _tasks: dict[str, asyncio.Task] = {}
 
@@ -219,6 +263,8 @@ def start() -> None:
         _tasks["topic"] = asyncio.create_task(_topic_loop(), name="topic-monitor")
     if "dm" not in _tasks or _tasks["dm"].done():
         _tasks["dm"] = asyncio.create_task(_dm_loop(), name="dm-monitor")
+    if "scheduler" not in _tasks or _tasks["scheduler"].done():
+        _tasks["scheduler"] = asyncio.create_task(_scheduler_loop(), name="scheduler")
     logger.info("monitors started: %s", list(_tasks.keys()))
 
 

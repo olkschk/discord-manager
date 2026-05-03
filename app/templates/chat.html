@@ -4,117 +4,189 @@
 <div class="shell">
   {% include "_topbar.html" %}
 
-  <main class="page chat-page">
-    <aside class="chat__side">
-      <div class="section__head">
-        <span class="section__title">Topic</span>
-      </div>
-      <form id="topicForm" class="panel">
-        <label>
-          <span>Channel ID</span>
-          <input type="text" id="topicInput" placeholder="123456789012345678" spellcheck="false" />
-        </label>
-        <button type="submit" class="primary">Open</button>
-      </form>
+  <main class="page" style="padding-bottom:0; display:grid; grid-template-rows:auto 1fr; gap:0; height:calc(100vh - 57px);">
 
-      <div class="section__head" style="margin-top: var(--sp-xl);">
-        <span class="section__title">Templates</span>
-        <button type="button" class="small" id="newTemplateBtn">New</button>
-      </div>
-      <div class="panel" id="templatesPanel">
-        <output id="templatesList" class="templates-list">Loading…</output>
-        <form id="newTemplateForm" hidden>
-          <textarea id="newTemplateText" rows="3" placeholder="Template text…" required></textarea>
-          <div style="display:flex; gap: var(--sp-sm); justify-content: flex-end;">
-            <button type="button" class="small" id="cancelTemplateBtn">Cancel</button>
-            <button type="submit" class="small primary">Save</button>
+    <!-- Sub-tabs -->
+    <div style="display:flex; gap:0; border-bottom:1px solid var(--border-visible); padding:0 var(--sp-2xl); background:var(--surface);">
+      <button type="button" class="chat-subtab active" data-tab="topics" style="font-family:var(--font-mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;background:none;border:none;border-bottom:1px solid var(--text-display);padding:12px 20px 11px;color:var(--text-display);cursor:pointer;">Topics</button>
+      <button type="button" class="chat-subtab" data-tab="dms" style="font-family:var(--font-mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;background:none;border:none;border-bottom:1px solid transparent;padding:12px 20px 11px;color:var(--text-secondary);cursor:pointer;">
+        DMs <span id="dmBadge" hidden style="background:var(--accent);color:#fff;font-size:10px;padding:1px 5px;border-radius:8px;margin-left:4px;"></span>
+      </button>
+    </div>
+
+    <!-- ── Topics tab ────────────────────────────────────────────────────────── -->
+    <div id="tabTopics" style="display:grid; grid-template-columns:300px 1fr; height:100%; overflow:hidden;">
+
+      <!-- Left: topic + templates panel -->
+      <aside style="border-right:1px solid var(--border); padding:var(--sp-lg); display:grid; gap:var(--sp-lg); overflow-y:auto; align-content:start;">
+
+        <div>
+          <div class="section__head" style="padding-bottom:var(--sp-sm); margin-bottom:var(--sp-sm);">
+            <span class="section__title">Topic</span>
+          </div>
+          <form id="topicForm" style="display:flex; gap:var(--sp-sm);">
+            <input type="text" id="topicInput" placeholder="Channel ID" spellcheck="false" style="flex:1;" />
+            <button type="submit" class="primary small">Open</button>
+          </form>
+        </div>
+
+        <!-- Scheduled messages list -->
+        <div>
+          <div class="section__head" style="padding-bottom:var(--sp-sm); margin-bottom:var(--sp-sm);">
+            <span class="section__title">Scheduled</span>
+            <button type="button" class="small" id="refreshScheduled" title="Refresh">↻</button>
+          </div>
+          <div id="scheduledList" style="display:grid; gap:var(--sp-xs); font-family:var(--font-mono); font-size:11px;"></div>
+        </div>
+
+        <!-- Templates -->
+        <div>
+          <div class="section__head" style="padding-bottom:var(--sp-sm); margin-bottom:var(--sp-sm);">
+            <span class="section__title">Templates</span>
+            <button type="button" class="small" id="newTemplateBtn">New</button>
+          </div>
+          <div id="templatesList" class="templates-list"></div>
+          <form id="newTemplateForm" hidden style="display:grid;gap:var(--sp-sm);margin-top:var(--sp-sm);">
+            <textarea id="newTemplateText" rows="3" placeholder="Template text…" required></textarea>
+            <div style="display:flex; gap:var(--sp-sm); justify-content:flex-end;">
+              <button type="button" class="small" id="cancelTemplateBtn">Cancel</button>
+              <button type="submit" class="small primary">Save</button>
+            </div>
+          </form>
+        </div>
+      </aside>
+
+      <!-- Right: messages + send -->
+      <section style="display:grid; grid-template-rows:auto 1fr auto; overflow:hidden;">
+        <div style="padding:var(--sp-md) var(--sp-lg); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+          <span class="section__title" id="topicLabel" style="color:var(--text-secondary)">No topic open</span>
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-disabled);" id="messageCount">—</span>
+        </div>
+
+        <div class="messages" id="messages" style="overflow-y:auto; padding:var(--sp-md) var(--sp-lg);">
+          <p class="messages__empty">Open a topic to load messages.</p>
+        </div>
+
+        <form id="sendForm" class="send" style="border-top:1px solid var(--border); border-radius:0; padding:var(--sp-md) var(--sp-lg); gap:var(--sp-sm);">
+          <div class="send__row">
+            <select id="accountSelect" required style="flex:1;">
+              <option value="">Select account…</option>
+              {% for a in accounts %}
+              <option value="{{ a.id }}">{{ a.username }} ({{ a.email }})</option>
+              {% endfor %}
+            </select>
+            <span id="replyChip" class="reply-chip" hidden>
+              ↩ <code id="replyId"></code>
+              <button type="button" id="cancelReply">×</button>
+            </span>
+          </div>
+          <textarea id="sendText" rows="2" placeholder="Write a message…" maxlength="2000"></textarea>
+          <div class="send__row">
+            <label class="file-pick">
+              <input type="file" id="sendFile" accept="image/*,video/*,audio/*,application/*" />
+              <span id="fileLabel">Attach file</span>
+            </label>
+            <!-- Scheduled time -->
+            <label style="display:flex; align-items:center; gap:var(--sp-sm); font-family:var(--font-mono); font-size:11px; color:var(--text-secondary);">
+              <span>Schedule</span>
+              <input type="datetime-local" id="scheduleTime" style="background:var(--black);border:1px solid var(--border-visible);border-radius:4px;padding:6px 8px;font-family:var(--font-mono);font-size:11px;color:var(--text-primary);" />
+            </label>
+          </div>
+          <div class="send__row send__actions">
+            <label class="dup-toggle">
+              <input type="checkbox" id="duplicateToggle" />
+              <span>Duplicate</span>
+            </label>
+            <output id="sendResult" class="result"></output>
+            <button type="submit" class="primary" id="sendBtn">Send</button>
+          </div>
+          <textarea id="duplicateChannels" rows="2" placeholder="One channel ID per line" hidden></textarea>
+        </form>
+      </section>
+    </div>
+
+    <!-- ── DMs tab ───────────────────────────────────────────────────────────── -->
+    <div id="tabDMs" style="display:none; grid-template-columns:280px 1fr; height:100%; overflow:hidden;">
+      <aside style="border-right:1px solid var(--border); overflow-y:auto;">
+        <div style="padding:var(--sp-md) var(--sp-lg); border-bottom:1px solid var(--border);">
+          <span class="section__title">Conversations</span>
+        </div>
+        <div id="convList" style="padding:var(--sp-sm) 0;"></div>
+      </aside>
+
+      <section style="display:grid; grid-template-rows:auto 1fr auto; overflow:hidden;">
+        <div style="padding:var(--sp-md) var(--sp-lg); border-bottom:1px solid var(--border);">
+          <span class="section__title" id="dmChatTitle" style="color:var(--text-secondary)">Select a conversation</span>
+        </div>
+        <div id="dmMessages" class="messages" style="overflow-y:auto; padding:var(--sp-md) var(--sp-lg);">
+          <p class="messages__empty">Select a conversation from the left.</p>
+        </div>
+        <form id="dmReplyForm" style="border-top:1px solid var(--border); padding:var(--sp-md) var(--sp-lg); display:grid; gap:var(--sp-sm);" hidden>
+          <div style="display:flex; gap:var(--sp-sm);">
+            <select id="dmAccountSelect" style="background:var(--black);color:var(--text-primary);border:1px solid var(--border-visible);border-radius:4px;padding:8px 10px;font-family:var(--font-mono);font-size:12px;flex:1;">
+              <option value="">Send as…</option>
+              {% for a in accounts %}
+              <option value="{{ a.id }}" data-email="{{ a.email }}">{{ a.username }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <textarea id="dmReplyText" rows="2" placeholder="Reply…" maxlength="2000"></textarea>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <output id="dmReplyResult" class="result"></output>
+            <button type="submit" class="primary">Send DM</button>
           </div>
         </form>
-      </div>
-    </aside>
-
-    <section class="chat__main">
-      <div class="section__head">
-        <span class="section__title">
-          Messages · <span id="topicLabel" class="muted-inline">no topic loaded</span>
-        </span>
-        <span class="section__sub" id="messageCount">—</span>
-      </div>
-
-      <div class="messages" id="messages">
-        <p class="messages__empty">Open a topic to load the last 100 messages.</p>
-      </div>
-
-      <form id="sendForm" class="send">
-        <div class="send__row">
-          <select id="accountSelect" required>
-            <option value="">Select account…</option>
-            {% for a in accounts %}
-              <option value="{{ a.id }}">{{ a.username }} ({{ a.email }})</option>
-            {% endfor %}
-          </select>
-          <span id="replyChip" class="reply-chip" hidden>
-            replying to <code id="replyId"></code>
-            <button type="button" id="cancelReply">×</button>
-          </span>
-        </div>
-        <textarea id="sendText" rows="2" placeholder="Write a message…" maxlength="2000"></textarea>
-        <div class="send__row">
-          <label class="file-pick">
-            <input type="file" id="sendFile" accept="image/*,video/*,audio/*,application/*" />
-            <span id="fileLabel">Attach file (≤ 8 MB)</span>
-          </label>
-        </div>
-        <div class="send__row send__actions">
-          <label class="dup-toggle">
-            <input type="checkbox" id="duplicateToggle" />
-            <span>Duplicate to multiple channels</span>
-          </label>
-          <output id="sendResult" class="result"></output>
-          <button type="submit" class="primary">Send</button>
-        </div>
-        <textarea
-          id="duplicateChannels"
-          rows="2"
-          placeholder="One channel ID per line"
-          hidden
-        ></textarea>
-      </form>
-    </section>
+      </section>
+    </div>
   </main>
 </div>
 
 <script>
-const accountSelect = document.getElementById("accountSelect");
-const topicInput = document.getElementById("topicInput");
-const topicLabel = document.getElementById("topicLabel");
-const messageCount = document.getElementById("messageCount");
-const messagesEl = document.getElementById("messages");
-const sendForm = document.getElementById("sendForm");
-const sendText = document.getElementById("sendText");
-const sendResult = document.getElementById("sendResult");
-const duplicateToggle = document.getElementById("duplicateToggle");
-const duplicateChannels = document.getElementById("duplicateChannels");
-const replyChip = document.getElementById("replyChip");
-const replyIdEl = document.getElementById("replyId");
-const cancelReplyBtn = document.getElementById("cancelReply");
-
-let currentTopic = null;
-let replyTo = null;
-
-function setReply(id) {
-  replyTo = id;
-  if (id) {
-    replyIdEl.textContent = id;
-    replyChip.hidden = false;
-  } else {
-    replyChip.hidden = true;
-  }
-}
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+document.querySelectorAll(".chat-subtab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".chat-subtab").forEach(b => {
+      b.style.color = "var(--text-secondary)";
+      b.style.borderBottomColor = "transparent";
+    });
+    btn.style.color = "var(--text-display)";
+    btn.style.borderBottomColor = "var(--text-display)";
+    const tab = btn.dataset.tab;
+    document.getElementById("tabTopics").style.display = tab === "topics" ? "grid" : "none";
+    document.getElementById("tabDMs").style.display = tab === "dms" ? "grid" : "none";
+    if (tab === "dms") loadConversations();
+  });
+});
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
+
+// ── Topics ────────────────────────────────────────────────────────────────────
+const accountSelect = document.getElementById("accountSelect");
+const topicInput = document.getElementById("topicInput");
+const messagesEl = document.getElementById("messages");
+let currentTopic = null, replyTo = null;
+
+function setReply(id) {
+  replyTo = id;
+  const chip = document.getElementById("replyChip");
+  chip.hidden = !id;
+  if (id) document.getElementById("replyId").textContent = id.slice(-6);
+}
+document.getElementById("cancelReply").addEventListener("click", () => setReply(null));
+
+document.getElementById("topicForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const tid = topicInput.value.trim();
+  if (!tid) return;
+  currentTopic = tid;
+  document.getElementById("topicLabel").textContent = tid;
+  const r = await fetch(`/api/chat/topic/${tid}/messages`);
+  const data = await r.json();
+  renderMessages(data);
+  document.getElementById("messageCount").textContent = `${data.length} stored`;
+});
 
 function renderMessages(items) {
   if (!items.length) {
@@ -124,172 +196,277 @@ function renderMessages(items) {
   messagesEl.innerHTML = items.map(m => {
     const time = m.timestamp ? new Date(m.timestamp).toLocaleString() : "";
     const img = m.image ? `<img class="msg__img" src="${escapeHtml(m.image)}" alt="" />` : "";
-    return `
-      <article class="msg" data-id="${escapeHtml(m.id)}">
-        <header class="msg__head">
-          <span class="msg__from">${escapeHtml(m.from || "?")}</span>
-          <span class="msg__time">${escapeHtml(time)}</span>
-          <button type="button" class="small msg__reply" data-id="${escapeHtml(m.id)}">Reply</button>
-        </header>
-        <p class="msg__text">${escapeHtml(m.text || "")}</p>
-        ${img}
-      </article>
-    `;
+    return `<article class="msg" data-id="${escapeHtml(m.id)}">
+      <header class="msg__head">
+        <span class="msg__from">${escapeHtml(m.from || "?")}</span>
+        <span class="msg__time">${escapeHtml(time)}</span>
+        <button type="button" class="small msg__reply" data-id="${escapeHtml(m.id)}">Reply</button>
+      </header>
+      <p class="msg__text">${escapeHtml(m.text || "")}</p>${img}
+    </article>`;
   }).join("");
-
-  messagesEl.querySelectorAll(".msg__reply").forEach(btn => {
-    btn.addEventListener("click", () => setReply(btn.dataset.id));
-  });
+  messagesEl.querySelectorAll(".msg__reply").forEach(b => b.addEventListener("click", () => setReply(b.dataset.id)));
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-document.getElementById("topicForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const tid = topicInput.value.trim();
-  if (!tid) return;
-  currentTopic = tid;
-  topicLabel.textContent = tid;
-  const r = await fetch(`/api/chat/topic/${tid}/messages`);
-  const data = await r.json();
-  renderMessages(data);
-  messageCount.textContent = `${data.length} stored`;
-});
-
-duplicateToggle.addEventListener("change", () => {
-  duplicateChannels.hidden = !duplicateToggle.checked;
-});
-
-cancelReplyBtn.addEventListener("click", () => setReply(null));
-
-// File-picker label feedback
+// File picker
 const fileInput = document.getElementById("sendFile");
 const fileLabel = document.getElementById("fileLabel");
 fileInput.addEventListener("change", () => {
   const f = fileInput.files[0];
-  fileLabel.textContent = f ? `${f.name} · ${(f.size / 1024).toFixed(1)} kB` : "Attach file (≤ 8 MB)";
+  fileLabel.textContent = f ? `${f.name} · ${(f.size/1024).toFixed(1)}kB` : "Attach file";
 });
 
-sendForm.addEventListener("submit", async (e) => {
+document.getElementById("duplicateToggle").addEventListener("change", function() {
+  document.getElementById("duplicateChannels").hidden = !this.checked;
+});
+
+// Send form
+document.getElementById("sendForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const accountId = accountSelect.value;
-  const text = sendText.value.trim();
+  const text = document.getElementById("sendText").value.trim();
   const file = fileInput.files[0] || null;
-  if (!accountId) return;
-  if (!text && !file) return;
+  const scheduleTime = document.getElementById("scheduleTime").value;
+  const out = document.getElementById("sendResult");
+  if (!accountId || (!text && !file)) return;
 
-  sendResult.classList.remove("ok", "err");
-  sendResult.textContent = "Sending…";
+  out.className = "result"; out.textContent = "Sending…";
+
+  // Scheduled?
+  if (scheduleTime && !document.getElementById("duplicateToggle").checked) {
+    if (!currentTopic) { out.className = "result err"; out.textContent = "Open a topic first"; return; }
+    const r = await fetch("/api/chat/schedule", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id: accountId, channel_id: currentTopic, content: text, reply_to: replyTo, scheduled_at: new Date(scheduleTime).toISOString() }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      out.className = "result ok"; out.textContent = `Scheduled for ${scheduleTime}`;
+      document.getElementById("sendText").value = ""; document.getElementById("scheduleTime").value = "";
+      setReply(null); loadScheduled();
+    } else { out.className = "result err"; out.textContent = d.detail || `Error ${r.status}`; }
+    return;
+  }
+
+  // Duplicate mode
+  if (document.getElementById("duplicateToggle").checked) {
+    const channels = document.getElementById("duplicateChannels").value.split("\n").map(s=>s.trim()).filter(Boolean);
+    if (!channels.length) { out.className="result err"; out.textContent="Add channel IDs"; return; }
+    const r = await fetch("/api/chat/duplicate", { method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ account_id: accountId, channel_ids: channels, content: text }) });
+    const d = await r.json();
+    const ok = (d.results||[]).filter(x=>x.ok).length;
+    out.className = ok>0?"result ok":"result err";
+    out.textContent = `${ok}/${(d.results||[]).length} sent`;
+    if (ok>0) { document.getElementById("sendText").value=""; setReply(null); }
+    return;
+  }
+
+  if (!currentTopic) { out.className="result err"; out.textContent="Open a topic first"; return; }
 
   let resp;
-  if (duplicateToggle.checked) {
-    if (file) {
-      sendResult.classList.add("err");
-      sendResult.textContent = "File + duplicate not supported (would re-upload N×)";
-      return;
-    }
-    const channels = duplicateChannels.value.split("\n").map(s => s.trim()).filter(Boolean);
-    if (!channels.length) {
-      sendResult.textContent = "Add at least one channel id";
-      sendResult.classList.add("err");
-      return;
-    }
-    resp = await fetch("/api/chat/duplicate", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ account_id: accountId, channel_ids: channels, content: text }),
-    });
+  if (file) {
+    const fd = new FormData();
+    fd.append("account_id", accountId); fd.append("channel_id", currentTopic);
+    fd.append("content", text); if (replyTo) fd.append("reply_to", replyTo);
+    fd.append("files", file, file.name);
+    resp = await fetch("/api/chat/send-with-file", { method:"POST", body:fd });
   } else {
-    if (!currentTopic) {
-      sendResult.textContent = "Open a topic first";
-      sendResult.classList.add("err");
-      return;
-    }
-    if (file) {
-      // Multipart path
-      const fd = new FormData();
-      fd.append("account_id", accountId);
-      fd.append("channel_id", currentTopic);
-      fd.append("content", text);
-      if (replyTo) fd.append("reply_to", replyTo);
-      fd.append("files", file, file.name);
-      resp = await fetch("/api/chat/send-with-file", { method: "POST", body: fd });
-    } else {
-      resp = await fetch("/api/chat/send", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ account_id: accountId, channel_id: currentTopic, content: text, reply_to: replyTo }),
-      });
-    }
+    resp = await fetch("/api/chat/send", { method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ account_id: accountId, channel_id: currentTopic, content: text, reply_to: replyTo }) });
   }
-  const data = await resp.json().catch(() => ({}));
-  if (resp.ok && (data.sent || (data.results || []).every(r => r.ok))) {
-    sendResult.classList.add("ok");
-    sendResult.textContent = duplicateToggle.checked ? `Sent to ${data.results.length}` : (file ? `Sent · ${data.files} file(s)` : "Sent");
-    sendText.value = "";
-    fileInput.value = "";
-    fileLabel.textContent = "Attach file (≤ 8 MB)";
-    setReply(null);
-  } else {
-    sendResult.classList.add("err");
-    sendResult.textContent = "Failed — check console";
-    console.warn("send failed", data);
-  }
+  const d = await resp.json().catch(()=>({}));
+  if (resp.ok && d.sent) {
+    out.className="result ok"; out.textContent = file ? `Sent · ${d.files} file(s)` : "Sent";
+    document.getElementById("sendText").value=""; fileInput.value=""; fileLabel.textContent="Attach file"; setReply(null);
+  } else { out.className="result err"; out.textContent="Failed"; }
 });
 
-// Templates
-const templatesList = document.getElementById("templatesList");
-const newTemplateBtn = document.getElementById("newTemplateBtn");
-const newTemplateForm = document.getElementById("newTemplateForm");
-const cancelTemplateBtn = document.getElementById("cancelTemplateBtn");
-const newTemplateText = document.getElementById("newTemplateText");
-
+// ── Templates ─────────────────────────────────────────────────────────────────
 async function loadTemplates() {
   const r = await fetch("/api/templates");
   const data = await r.json();
-  if (!data.length) {
-    templatesList.innerHTML = '<span class="muted">No templates yet</span>';
-    return;
-  }
-  templatesList.innerHTML = data.map(t => `
-    <div class="tmpl" data-id="${t.id}">
-      <button type="button" class="tmpl__use" data-text="${escapeHtml(t.text)}">${escapeHtml(t.text.slice(0, 80))}${t.text.length > 80 ? "…" : ""}</button>
-      <button type="button" class="tmpl__del small danger" data-id="${t.id}">×</button>
+  const el = document.getElementById("templatesList");
+  if (!data.length) { el.innerHTML='<span style="color:var(--text-disabled);font-size:11px;">No templates</span>'; return; }
+  el.innerHTML = data.map(t => `<div class="tmpl" data-id="${t.id}">
+    <button type="button" class="tmpl__use" data-text="${escapeHtml(t.text)}">${escapeHtml(t.text.slice(0,80))}${t.text.length>80?"…":""}</button>
+    <button type="button" class="tmpl__del small danger" data-id="${t.id}">×</button>
+  </div>`).join("");
+  el.querySelectorAll(".tmpl__use").forEach(b => b.addEventListener("click", () => { document.getElementById("sendText").value=b.dataset.text; }));
+  el.querySelectorAll(".tmpl__del").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Delete template?")) return;
+    await fetch(`/api/templates/${b.dataset.id}`, {method:"DELETE"});
+    loadTemplates();
+  }));
+}
+document.getElementById("newTemplateBtn").addEventListener("click", () => {
+  document.getElementById("newTemplateForm").hidden=false;
+  document.getElementById("newTemplateText").focus();
+});
+document.getElementById("cancelTemplateBtn").addEventListener("click", () => {
+  document.getElementById("newTemplateForm").hidden=true;
+  document.getElementById("newTemplateText").value="";
+});
+document.getElementById("newTemplateForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = document.getElementById("newTemplateText").value.trim();
+  if (!text) return;
+  await fetch("/api/templates", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text}) });
+  document.getElementById("newTemplateText").value="";
+  document.getElementById("newTemplateForm").hidden=true;
+  loadTemplates();
+});
+loadTemplates();
+
+// ── Scheduled ─────────────────────────────────────────────────────────────────
+async function loadScheduled() {
+  const r = await fetch("/api/chat/scheduled");
+  const data = await r.json();
+  const el = document.getElementById("scheduledList");
+  if (!data.length) { el.innerHTML='<span style="color:var(--text-disabled);font-size:11px;text-transform:uppercase;letter-spacing:.15em;">None pending</span>'; return; }
+  el.innerHTML = data.map(m => `
+    <div style="background:var(--surface-raised);border:1px solid var(--border);border-radius:2px;padding:6px 8px;display:grid;gap:2px;">
+      <div style="color:var(--text-display);font-size:11px;">${escapeHtml(m.content.slice(0,60))}${m.content.length>60?"…":""}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="color:var(--warning);font-size:10px;">${new Date(m.scheduled_at).toLocaleString()}</span>
+        <button type="button" class="small danger sched-cancel" data-id="${m.id}" style="padding:2px 6px;font-size:9px;">Cancel</button>
+      </div>
     </div>
   `).join("");
-  templatesList.querySelectorAll(".tmpl__use").forEach(b => {
-    b.addEventListener("click", () => { sendText.value = b.dataset.text; sendText.focus(); });
-  });
-  templatesList.querySelectorAll(".tmpl__del").forEach(b => {
-    b.addEventListener("click", async () => {
-      if (!confirm("Delete template?")) return;
-      await fetch(`/api/templates/${b.dataset.id}`, { method: "DELETE" });
-      loadTemplates();
-    });
+  el.querySelectorAll(".sched-cancel").forEach(b => b.addEventListener("click", async () => {
+    await fetch(`/api/chat/scheduled/${b.dataset.id}`, {method:"DELETE"});
+    loadScheduled();
+  }));
+}
+document.getElementById("refreshScheduled").addEventListener("click", loadScheduled);
+loadScheduled();
+
+// ── DM conversations ──────────────────────────────────────────────────────────
+let activeDM = null;
+
+async function loadConversations() {
+  const r = await fetch("/api/chat/private/conversations");
+  const data = await r.json();
+  const el = document.getElementById("convList");
+  if (!data.length) {
+    el.innerHTML = '<p style="padding:var(--sp-md);color:var(--text-disabled);font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.15em;">No DMs yet</p>';
+    return;
+  }
+  el.innerHTML = data.map(c => `
+    <div class="conv-item" data-from="${escapeHtml(c.from)}" data-to="${escapeHtml(c.to)}" data-channel="${escapeHtml(c.dm_channel_id||"")}"
+      style="padding:var(--sp-sm) var(--sp-lg);cursor:pointer;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr auto;gap:4px;align-items:center;">
+      <div>
+        <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-display);">${escapeHtml(c.from)}</div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-secondary);">→ ${escapeHtml(c.to)}</div>
+        <div style="font-size:11px;color:var(--text-disabled);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">${escapeHtml((c.last_text||"").slice(0,60))}</div>
+      </div>
+      ${c.unread>0 ? `<span style="background:var(--accent);color:#fff;font-size:10px;font-family:var(--font-mono);padding:2px 6px;border-radius:10px;">${c.unread}</span>` : ""}
+    </div>
+  `).join("");
+  el.querySelectorAll(".conv-item").forEach(item => {
+    item.addEventListener("click", () => openDM(item.dataset.from, item.dataset.to, item.dataset.channel));
   });
 }
 
-newTemplateBtn.addEventListener("click", () => {
-  newTemplateForm.hidden = false;
-  newTemplateText.focus();
-});
-cancelTemplateBtn.addEventListener("click", () => {
-  newTemplateForm.hidden = true;
-  newTemplateText.value = "";
-});
-newTemplateForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const text = newTemplateText.value.trim();
-  if (!text) return;
-  await fetch("/api/templates", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ text }),
+async function openDM(from, to, channelId) {
+  activeDM = {from, to, channelId};
+  document.getElementById("dmChatTitle").textContent = `${from} → ${to}`;
+  document.getElementById("dmReplyForm").hidden = false;
+  const dmMsgs = document.getElementById("dmMessages");
+  dmMsgs.innerHTML = '<p class="messages__empty">Loading…</p>';
+
+  const r = await fetch(`/api/chat/private/messages?sender=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+  const data = await r.json();
+
+  if (!data.length) {
+    dmMsgs.innerHTML = '<p class="messages__empty">No messages</p>';
+  } else {
+    dmMsgs.innerHTML = data.map(m => `
+      <article class="msg">
+        <header class="msg__head">
+          <span class="msg__from">${escapeHtml(m.from)}</span>
+          <span class="msg__time">${m.timestamp ? new Date(m.timestamp).toLocaleString() : ""}</span>
+          ${!m.is_read ? '<span style="color:var(--accent);font-size:10px;font-family:var(--font-mono);">NEW</span>' : ""}
+        </header>
+        <p class="msg__text">${escapeHtml(m.text||"")}</p>
+        ${m.image ? `<img class="msg__img" src="${escapeHtml(m.image)}" alt="" />` : ""}
+      </article>
+    `).join("");
+    dmMsgs.scrollTop = dmMsgs.scrollHeight;
+  }
+
+  // Mark as read
+  await fetch("/api/chat/private/mark-read", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({sender: from, to})
   });
-  newTemplateText.value = "";
-  newTemplateForm.hidden = true;
-  loadTemplates();
+  loadConversations();
+  updateDMBadge();
+}
+
+document.getElementById("dmReplyForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!activeDM) return;
+  const accountId = document.getElementById("dmAccountSelect").value;
+  const text = document.getElementById("dmReplyText").value.trim();
+  const out = document.getElementById("dmReplyResult");
+  if (!accountId || !text) return;
+  if (!activeDM.channelId) { out.className="result err"; out.textContent="No DM channel ID stored (needs re-monitor)"; return; }
+  out.className="result"; out.textContent="Sending…";
+  const r = await fetch("/api/chat/private/reply", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ account_id: accountId, dm_channel_id: activeDM.channelId, content: text }),
+  });
+  const d = await r.json().catch(()=>({}));
+  if (r.ok && d.sent) {
+    out.className="result ok"; out.textContent="Sent";
+    document.getElementById("dmReplyText").value="";
+  } else { out.className="result err"; out.textContent="Failed"; }
 });
 
-loadTemplates();
+// ── Unread badge + browser notifications ─────────────────────────────────────
+async function updateDMBadge() {
+  const r = await fetch("/api/chat/private/unread-count");
+  const d = await r.json();
+  const badge = document.getElementById("dmBadge");
+  const dmTab = document.querySelector('[data-tab="dms"]');
+  if (d.count > 0) {
+    badge.hidden = false;
+    badge.textContent = d.count;
+    dmTab.style.color = "var(--warning)";
+  } else {
+    badge.hidden = true;
+    dmTab.style.color = "var(--text-secondary)";
+  }
+  return d.count;
+}
+
+// Request notification permission
+if (typeof Notification !== "undefined" && Notification.permission === "default") {
+  Notification.requestPermission();
+}
+
+let prevUnread = 0;
+async function pollUnread() {
+  const count = await updateDMBadge();
+  if (count > prevUnread && prevUnread >= 0) {
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      const n = new Notification("📬 New DM — Discord Farm", {
+        body: `${count} unread message${count>1?"s":""}`,
+        tag: "dm-notification",
+        renotify: true,
+      });
+      n.onclick = () => {
+        window.focus();
+        document.querySelector('[data-tab="dms"]').click();
+      };
+    }
+  }
+  prevUnread = count;
+}
+
+updateDMBadge();
+setInterval(pollUnread, 30000);
 </script>
 {% endblock %}
