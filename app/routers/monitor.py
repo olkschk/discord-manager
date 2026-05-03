@@ -31,12 +31,15 @@ async def list_topics() -> list[dict]:
 
 @router.post("/topics")
 async def add_topic(body: TopicBody) -> dict:
-    doc = {"channel_id": body.channel_id.strip(), "label": body.label}
+    channel_id = body.channel_id.strip()
+    label = body.label
     try:
-        res = await topics().insert_one(doc)
+        res = await topics().insert_one({"channel_id": channel_id, "label": label})
     except DuplicateKeyError:
         raise HTTPException(status.HTTP_409_CONFLICT, "Topic already registered")
-    return {"id": str(res.inserted_id), **doc}
+    # Build return dict explicitly — insert_one adds ObjectId _id to the dict
+    # in-place, which Pydantic can't serialize
+    return {"id": str(res.inserted_id), "channel_id": channel_id, "label": label}
 
 
 @router.delete("/topics/{topic_id}")
