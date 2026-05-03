@@ -4,19 +4,16 @@
 <div class="shell">
   {% include "_topbar.html" %}
 
-  <main class="page utils-page">
+  <main class="page" style="display:grid; grid-template-columns: 1fr 300px; gap: var(--sp-xl); align-items: start;">
+
+    <!-- Left: connection panel -->
     <section>
       <div class="section__head">
         <span class="section__title">Voice connections</span>
-        <span class="section__sub">Hold a gateway WS open to appear in a channel</span>
+        <span class="section__sub">Gateway WS · appear in channel</span>
       </div>
 
       <article class="panel">
-        <p class="panel__hint">
-          The Discord gateway WebSocket must stay connected for the account to appear in the
-          channel. Disconnect frees the connection.
-        </p>
-
         <div class="split">
           <label>
             <span>Guild ID</span>
@@ -51,13 +48,13 @@
             <span class="rowlist__bio">{{ a.voice_channel_id or '' }}</span>
           </label>
           {% else %}
-          <p class="muted">No valid-token accounts. Validate or login-by-mail first.</p>
+          <p class="muted" style="padding:var(--sp-md)">No accounts on server yet.</p>
           {% endfor %}
         </div>
 
-        <div style="display:flex; justify-content: space-between; gap: var(--sp-md); margin-top: var(--sp-md);">
+        <div style="display:flex; justify-content:space-between; gap:var(--sp-md); margin-top:var(--sp-md);">
           <output id="voiceResult" class="result"></output>
-          <div style="display:flex; gap: var(--sp-sm);">
+          <div style="display:flex; gap:var(--sp-sm);">
             <button type="button" id="voiceSelectAllBtn" class="small">Select all</button>
             <button type="button" id="voiceLeaveBtn" class="small danger">Leave</button>
             <button type="button" id="voiceJoinBtn" class="primary">Connect</button>
@@ -65,6 +62,31 @@
         </div>
       </article>
     </section>
+
+    <!-- Right: channel templates -->
+    <section>
+      <div class="section__head">
+        <span class="section__title">Saved channels</span>
+      </div>
+
+      <article class="panel" style="gap:var(--sp-sm);">
+        <p class="panel__hint">Click to auto-fill Guild + Channel IDs.</p>
+
+        <div id="vcList" class="topics-list" style="min-height:2rem">
+          <span class="muted" style="font-size:11px;letter-spacing:.15em;text-transform:uppercase">Loading…</span>
+        </div>
+
+        <form id="vcSaveForm" style="display:grid; gap:var(--sp-sm); margin-top:var(--sp-sm);">
+          <label>
+            <span>Label</span>
+            <input type="text" id="vcLabel" placeholder="General voice" maxlength="64" required />
+          </label>
+          <button type="submit" class="primary small">Save current IDs</button>
+        </form>
+        <output id="vcResult" class="result"></output>
+      </article>
+    </section>
+
   </main>
 </div>
 
@@ -78,6 +100,74 @@ function gather(section) {
   return [...document.querySelectorAll(`.acc-check[data-section="${section}"]:checked`)].map(c => c.value);
 }
 
+// ── Voice channel templates ───────────────────────────────────────
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+async function loadVcList() {
+  const list = document.getElementById("vcList");
+  const r = await fetch("/api/voice/channels");
+  const data = await r.json();
+  if (!data.length) {
+    list.innerHTML = '<span class="muted" style="font-size:11px;letter-spacing:.15em;text-transform:uppercase">No saved channels</span>';
+    return;
+  }
+  list.innerHTML = data.map(ch => `
+    <div class="vc-item" data-guild="${escapeHtml(ch.guild_id)}" data-channel="${escapeHtml(ch.channel_id)}" style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:var(--sp-sm);background:var(--black);border:1px solid var(--border);border-radius:2px;padding:var(--sp-sm) var(--sp-md);cursor:pointer;">
+      <div>
+        <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-display)">${escapeHtml(ch.label)}</div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-disabled);letter-spacing:.08em">${escapeHtml(ch.channel_id)}</div>
+      </div>
+      <button type="button" class="small danger vc-del" data-id="${escapeHtml(ch.id)}" title="Delete">×</button>
+    </div>
+  `).join("");
+
+  list.querySelectorAll(".vc-item").forEach(item => {
+    item.addEventListener("click", (e) => {
+      if (e.target.classList.contains("vc-del")) return;
+      document.getElementById("voiceGuildId").value = item.dataset.guild;
+      document.getElementById("voiceChannelId").value = item.dataset.channel;
+      // Visual feedback
+      item.style.borderColor = "var(--success)";
+      setTimeout(() => item.style.borderColor = "", 800);
+    });
+  });
+
+  list.querySelectorAll(".vc-del").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm("Delete this channel?")) return;
+      const r = await fetch(`/api/voice/channels/${btn.dataset.id}`, { method: "DELETE" });
+      if (r.ok) loadVcList();
+    });
+  });
+}
+
+document.getElementById("vcSaveForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const out = document.getElementById("vcResult");
+  const guild_id = document.getElementById("voiceGuildId").value.trim();
+  const channel_id = document.getElementById("voiceChannelId").value.trim();
+  const label = document.getElementById("vcLabel").value.trim();
+  if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild + Channel ID first");
+  const r = await fetch("/api/voice/channels", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ guild_id, channel_id, label }),
+  });
+  if (r.ok) {
+    setResult(out, true, "Saved");
+    document.getElementById("vcLabel").value = "";
+    loadVcList();
+  } else {
+    setResult(out, false, `Error ${r.status}`);
+  }
+});
+
+loadVcList();
+
+// ── Connect / Leave ───────────────────────────────────────────────
 document.getElementById("voiceSelectAllBtn").addEventListener("click", () => {
   document.querySelectorAll('.acc-check[data-section="voice"]:not(:disabled)').forEach(c => c.checked = true);
 });

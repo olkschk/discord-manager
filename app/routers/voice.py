@@ -8,6 +8,10 @@ import random
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
+
+from app.database import voice_channels
 from app.security import require_login
 from app.services import gateway_pool
 
@@ -62,3 +66,44 @@ async def disconnect(body: VoiceLeaveBody) -> dict:
     for acc_id in body.account_ids:
         await gateway_pool.close_one(acc_id)
     return {"closed": len(body.account_ids)}
+
+
+# ── Voice channel templates ───────────────────────────────────────────────────
+class VoiceChannelBody(BaseModel):
+    guild_id: str = Field(..., min_length=1)
+    channel_id: str = Field(..., min_length=1)
+    label: str = Field(..., min_length=1, max_length=64)
+
+
+@router.get("/channels")
+async def list_voice_channels() -> list[dict]:
+    """List all saved voice channel templates."""
+    out: list[dict] = []
+    async for ch in voice_channels().find().sort("label", 1):
+        out.append({
+            "id": str(ch["_id"]),
+            "guild_id": ch["guild_id"],
+            "channel_id": ch["channel_id"],
+            "label": ch.get("label", ""),
+        })
+    return out
+
+
+@router.post("/channels")
+async def create_voice_channel(body: VoiceChannelBody) -> dict:
+    res = await voice_channels().insert_one({
+        "guild_id": body.guild_id,
+        "channel_id": body.channel_id,
+        "label": body.label,
+    })
+    return {"id": str(res.inserted_id), "guild_id": body.guild_id, "channel_id": body.channel_id, "label": body.label}
+
+
+@router.delete("/channels/{channel_doc_id}")
+async def delete_voice_channel(channel_doc_id: str) -> dict:
+    if not ObjectId.is_valid(channel_doc_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid id")
+    res = await voice_channels().delete_one({"_id": ObjectId(channel_doc_id)})
+    if res.deleted_count == 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    return {"deleted": True}
