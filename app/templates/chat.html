@@ -119,7 +119,7 @@
         <div style="padding:var(--sp-md) var(--sp-lg); border-bottom:1px solid var(--border);">
           <span class="section__title" id="dmChatTitle" style="color:var(--text-secondary)">Select a conversation</span>
         </div>
-        <div id="dmMessages" class="messages" style="overflow-y:auto; padding:var(--sp-md) var(--sp-lg);">
+        <div id="dmMessages" style="overflow-y:auto; padding:var(--sp-md) var(--sp-lg); display:flex; flex-direction:column; gap:var(--sp-sm);">
           <p class="messages__empty">Select a conversation from the left.</p>
         </div>
         <form id="dmReplyForm" style="border-top:1px solid var(--border); padding:var(--sp-md) var(--sp-lg); display:grid; gap:var(--sp-sm);" hidden>
@@ -346,6 +346,19 @@ loadScheduled();
 // ── DM conversations ──────────────────────────────────────────────────────────
 let activeDM = null;
 
+function renderDMMsg(from, text, timestamp, isNew, image) {
+  const time = timestamp ? new Date(timestamp).toLocaleString() : "";
+  return `<article class="msg" style="border-left:1px solid var(--border-visible);padding:6px var(--sp-md);margin:0;">
+    <header class="msg__head" style="margin-bottom:4px;">
+      <span class="msg__from">${escapeHtml(from||"")}</span>
+      ${time ? `<span class="msg__time">${escapeHtml(time)}</span>` : ""}
+      ${isNew ? '<span style="color:var(--accent);font-size:10px;font-family:var(--font-mono);letter-spacing:.1em;">NEW</span>' : ""}
+    </header>
+    <p class="msg__text" style="margin:0;">${escapeHtml(text||"")}</p>
+    ${image ? `<img class="msg__img" src="${escapeHtml(image)}" alt="" style="max-width:300px;margin-top:4px;border-radius:2px;" />` : ""}
+  </article>`;
+}
+
 async function loadConversations() {
   const r = await fetch("/api/chat/private/conversations");
   const data = await r.json();
@@ -383,17 +396,7 @@ async function openDM(from, to, channelId) {
   if (!data.length) {
     dmMsgs.innerHTML = '<p class="messages__empty">No messages</p>';
   } else {
-    dmMsgs.innerHTML = data.map(m => `
-      <article class="msg">
-        <header class="msg__head">
-          <span class="msg__from">${escapeHtml(m.from)}</span>
-          <span class="msg__time">${m.timestamp ? new Date(m.timestamp).toLocaleString() : ""}</span>
-          ${!m.is_read ? '<span style="color:var(--accent);font-size:10px;font-family:var(--font-mono);">NEW</span>' : ""}
-        </header>
-        <p class="msg__text">${escapeHtml(m.text||"")}</p>
-        ${m.image ? `<img class="msg__img" src="${escapeHtml(m.image)}" alt="" />` : ""}
-      </article>
-    `).join("");
+    dmMsgs.innerHTML = data.map(m => renderDMMsg(m.from, m.text, m.timestamp, !m.is_read, m.image)).join("");
     dmMsgs.scrollTop = dmMsgs.scrollHeight;
   }
 
@@ -428,8 +431,13 @@ document.getElementById("dmReplyForm").addEventListener("submit", async (e) => {
   const d = await r.json().catch(()=>({}));
   if (r.ok && d.sent) {
     out.className="result ok"; out.textContent="Sent";
+    // Append sent message immediately — no reload needed
+    const senderOpt = document.getElementById("dmAccountSelect").selectedOptions[0];
+    const senderName = senderOpt ? senderOpt.text.split(" (")[0] : "Me";
+    const dmMsgs = document.getElementById("dmMessages");
+    dmMsgs.insertAdjacentHTML("beforeend", renderDMMsg(senderName, text, new Date().toISOString(), false, null));
+    dmMsgs.scrollTop = dmMsgs.scrollHeight;
     document.getElementById("dmReplyText").value="";
-    // Update cached channel_id if resolved
     if (d.channel_id) activeDM.channelId = d.channel_id;
   } else {
     out.className="result err";
