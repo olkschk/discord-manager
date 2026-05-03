@@ -108,8 +108,9 @@
     <!-- ── DMs tab ───────────────────────────────────────────────────────────── -->
     <div id="tabDMs" style="display:none; grid-template-columns:280px 1fr; height:100%; overflow:hidden;">
       <aside style="border-right:1px solid var(--border); overflow-y:auto;">
-        <div style="padding:var(--sp-md) var(--sp-lg); border-bottom:1px solid var(--border);">
+        <div style="padding:var(--sp-md) var(--sp-lg); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
           <span class="section__title">Conversations</span>
+          <button type="button" id="refreshDMsBtn" class="small" title="Fetch new DMs from Discord now">↻</button>
         </div>
         <div id="convList" style="padding:var(--sp-sm) 0;"></div>
       </aside>
@@ -476,6 +477,24 @@ async function pollUnread() {
   }
   prevUnread = count;
 }
+
+// Refresh button — immediately fetch new DMs then reload list
+document.getElementById("refreshDMsBtn")?.addEventListener("click", async () => {
+  const btn = document.getElementById("refreshDMsBtn");
+  btn.disabled = true; btn.textContent = "…";
+  await fetch("/api/chat/private/refresh", { method: "POST" });
+  await loadConversations();
+  await updateDMBadge();
+  btn.disabled = false; btn.textContent = "↻";
+});
+
+// Auto-refresh conversations every 60s when DMs tab is visible
+setInterval(async () => {
+  if (document.getElementById("tabDMs").style.display !== "none") {
+    await loadConversations();
+    await updateDMBadge();
+  }
+}, 60000);
 
 updateDMBadge();
 setInterval(pollUnread, 30000);

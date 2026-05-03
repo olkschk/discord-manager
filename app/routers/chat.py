@@ -220,6 +220,17 @@ async def list_topic_messages(topic_id: str) -> list[dict]:
 
 
 # ── Private messages (DMs) ────────────────────────────────────────────────────
+@router.post("/private/refresh")
+async def refresh_dms() -> dict:
+    """Immediately run one DM monitor cycle without waiting for the interval."""
+    from app.services.monitor import _dm_cycle
+    try:
+        await _dm_cycle()
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+
+
 @router.get("/private/conversations")
 async def list_dm_conversations() -> list[dict]:
     """List DM conversations grouped by sender, with unread count and last message."""

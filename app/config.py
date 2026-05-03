@@ -40,7 +40,7 @@ class Settings(BaseSettings):
 
     monitor_enabled: bool = True
     monitor_topic_interval: int = 60
-    monitor_dm_interval: int = 300
+    monitor_dm_interval: int = 60
 
     imap_default_host: str = ""
     imap_default_port: int = 993
