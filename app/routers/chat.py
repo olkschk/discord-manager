@@ -235,6 +235,8 @@ async def refresh_dms() -> dict:
 async def list_dm_conversations() -> list[dict]:
     """List DM conversations grouped by sender, with unread count and last message."""
     pipeline = [
+        # Exclude outgoing replies — they're not separate conversations
+        {"$match": {"is_outgoing": {"$ne": True}}},
         {"$sort": {"timestamp": -1}},
         {"$group": {
             "_id": {"from": "$from", "to": "$to"},

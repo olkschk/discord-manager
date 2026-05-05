@@ -441,6 +441,7 @@ document.getElementById("dmReplyForm").addEventListener("submit", async (e) => {
     const dmMsgs = document.getElementById("dmMessages");
     dmMsgs.insertAdjacentHTML("beforeend", renderDMMsg(senderName, text, new Date().toISOString(), false, null, true));
     dmMsgs.scrollTop = dmMsgs.scrollHeight;
+    dmMessageCount++;  // prevent background refresh from re-rendering the same message
     document.getElementById("dmReplyText").value="";
     if (d.channel_id) activeDM.channelId = d.channel_id;
   } else {
