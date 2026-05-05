@@ -403,6 +403,7 @@ async function openDM(from, to, channelId) {
     dmMsgs.innerHTML = data.map(m => renderDMMsg(m.from, m.text, m.timestamp, !m.is_read, m.image, m.is_outgoing)).join("");
     dmMsgs.scrollTop = dmMsgs.scrollHeight;
   }
+  dmMessageCount = data.length;  // set AFTER render so background refresh knows baseline
 
   // Mark as read
   await fetch("/api/chat/private/mark-read", {
@@ -501,8 +502,13 @@ document.getElementById("refreshDMsBtn")?.addEventListener("click", async () => 
   btn.disabled = false; btn.textContent = "↻";
 });
 
-// Auto-refresh ALL conversations every 5s — runs in background regardless of open tab
+// Poll Discord API every 30s to pick up new DMs without waiting for 60s monitor cycle
+let _dmApiPollCounter = 0;
 async function backgroundDMRefresh() {
+  _dmApiPollCounter++;
+  if (_dmApiPollCounter % 6 === 0) {  // every 6×5s = 30s
+    await fetch("/api/chat/private/refresh", { method: "POST" });
+  }
   await loadConversations();
   await updateDMBadge();
   // If a conversation is open, reload its messages when new ones arrive
