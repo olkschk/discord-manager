@@ -494,13 +494,13 @@ document.getElementById("refreshDMsBtn")?.addEventListener("click", async () => 
   btn.disabled = false; btn.textContent = "↻";
 });
 
-// Auto-refresh conversations every 60s when DMs tab is visible
+// Auto-refresh conversations every 5s when DMs tab is visible
 setInterval(async () => {
   if (document.getElementById("tabDMs").style.display !== "none") {
     await loadConversations();
     await updateDMBadge();
   }
-}, 60000);
+}, 5000);
 
 updateDMBadge();
 setInterval(pollUnread, 30000);
