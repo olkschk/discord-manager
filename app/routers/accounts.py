@@ -9,7 +9,7 @@ from pymongo.errors import DuplicateKeyError
 
 import asyncio
 
-from app.database import discords, mails, proxies as proxies_coll
+from app.database import discords, mails, private_messages as private_messages_coll, proxies as proxies_coll
 from app.models.account import parse_account_line
 from app.security import decrypt, encrypt, require_login
 from app.services.auth_recovery import (
@@ -192,8 +192,14 @@ async def delete_account(account_id: str) -> dict:
         await proxies_coll().update_one(
             {"_id": acc["proxy_id"]}, {"$set": {"assigned": False}}
         )
+    email = acc.get("email", "")
+    # Delete all private messages for this account
+    deleted_pms = await private_messages_coll().delete_many({"to": email})
     await discords().delete_one({"_id": ObjectId(account_id)})
-    logger.info("Deleted account %s (email=%s)", account_id, acc.get("email"))
+    logger.info(
+        "Deleted account %s (email=%s, private_messages=%d)",
+        account_id, email, deleted_pms.deleted_count,
+    )
     return {"deleted": True}
 
 

@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Discord build number used in X-Super-Properties.
 # Update this if Discord starts rejecting the fingerprint.
-_CLIENT_BUILD_NUMBER = 538030
+_CLIENT_BUILD_NUMBER = 539147
 
 
 def build_proxy_url(ip: str, port: str, login: str, password: str, scheme: str = "http") -> str:
@@ -51,8 +51,8 @@ def _x_super_properties(ua: str) -> str:
         "referrer": "https://www.google.com/",
         "referring_domain": "www.google.com",
         "search_engine": "google",
-        "referrer_current": "",
-        "referring_domain_current": "",
+        "referrer_current": "https://discord.com/",
+        "referring_domain_current": "discord.com",
         "release_channel": "stable",
         "client_build_number": _CLIENT_BUILD_NUMBER,
         "client_event_source": None,
@@ -67,11 +67,22 @@ def _x_super_properties(ua: str) -> str:
 
 
 # Per-process installation ID (stable within one session)
-import os as _os, base64 as _b64
+import os as _os, base64 as _b64, time as _time
 _INSTALLATION_ID = (
     "1497753024896958545."
     + _b64.urlsafe_b64encode(_os.urandom(16)).decode().rstrip("=")
 )
+
+# Discord epoch for nonce generation
+_DISCORD_EPOCH = 1420070400000
+
+_CTX_CHAT_INPUT = base64.b64encode(b'{"location":"chat_input"}').decode()
+
+
+def _make_nonce() -> str:
+    """Generate a Discord snowflake nonce from current timestamp.
+    Without this Discord may flag the message as suspicious."""
+    return str((int(_time.time() * 1000) - _DISCORD_EPOCH) << 22)
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -263,17 +274,32 @@ async def send_message(
     Auto-solves captcha when challenged and a solver is configured."""
     settings = get_settings()
     url = f"{settings.discord_api_base}/channels/{channel_id}/messages"
-    payload: dict[str, Any] = {"content": content}
+
+    # Payload matches real browser: nonce, mobile_network_type, tts, flags required
+    payload: dict[str, Any] = {
+        "content": content,
+        "nonce": _make_nonce(),
+        "tts": False,
+        "flags": 0,
+        "mobile_network_type": "unknown",
+    }
     if reply_to:
         payload["message_reference"] = {"message_id": reply_to}
     if captcha_key:
         payload["captcha_key"] = captcha_key
 
+    # Headers: proper Referer + x-context-properties for channel messages
+    headers = {
+        **_headers(token),
+        "Referer": f"https://discord.com/channels/@me/{channel_id}",
+        "X-Context-Properties": _CTX_CHAT_INPUT,
+    }
+
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     body: dict[str, Any] | None = None
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=_headers(token), json=payload, proxy=proxy_url) as resp:
+            async with session.post(url, headers=headers, json=payload, proxy=proxy_url) as resp:
                 if resp.status in (200, 201):
                     return await resp.json()
                 try:
@@ -281,9 +307,10 @@ async def send_message(
                 except (aiohttp.ContentTypeError, ValueError):
                     body = None
                 logger.info(
-                    "send_message status=%s keys=%s",
+                    "send_message status=%s keys=%s body=%.200s",
                     resp.status,
                     list(body.keys()) if isinstance(body, dict) else None,
+                    str(body),
                 )
     except (ClientError, TimeoutError) as exc:
         logger.warning("send_message network error: %s", exc)
