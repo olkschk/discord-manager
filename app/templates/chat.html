@@ -123,14 +123,6 @@
           <p class="messages__empty">Select a conversation from the left.</p>
         </div>
         <form id="dmReplyForm" style="border-top:1px solid var(--border); padding:var(--sp-md) var(--sp-lg); display:grid; gap:var(--sp-sm);" hidden>
-          <div style="display:flex; gap:var(--sp-sm);">
-            <select id="dmAccountSelect" style="background:var(--black);color:var(--text-primary);border:1px solid var(--border-visible);border-radius:4px;padding:8px 10px;font-family:var(--font-mono);font-size:12px;flex:1;">
-              <option value="">Send as…</option>
-              {% for a in accounts %}
-              <option value="{{ a.id }}" data-email="{{ a.email }}">{{ a.username }}</option>
-              {% endfor %}
-            </select>
-          </div>
           <textarea id="dmReplyText" rows="2" placeholder="Reply…" maxlength="2000"></textarea>
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <output id="dmReplyResult" class="result"></output>
@@ -346,6 +338,11 @@ loadScheduled();
 // ── DM conversations ──────────────────────────────────────────────────────────
 let activeDM = null;
 
+// Email → account_id map for DM replies (populated from server-side accounts list)
+const emailToAccountId = {
+  {% for a in accounts %}"{{ a.email }}": "{{ a.id }}"{% if not loop.last %},{% endif %}{% endfor %}
+};
+
 function renderDMMsg(from, text, timestamp, isNew, image) {
   const time = timestamp ? new Date(timestamp).toLocaleString() : "";
   return `<article class="msg" style="border-left:1px solid var(--border-visible);padding:6px var(--sp-md);margin:0;">
@@ -412,12 +409,13 @@ async function openDM(from, to, channelId) {
 document.getElementById("dmReplyForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!activeDM) return;
-  const accountId = document.getElementById("dmAccountSelect").value;
   const text = document.getElementById("dmReplyText").value.trim();
   const out = document.getElementById("dmReplyResult");
-  if (!accountId || !text) return;
+  // Account is determined by who received the DM (activeDM.to = account email)
+  const accountId = emailToAccountId[activeDM.to] || "";
+  if (!accountId) { out.className="result err"; out.textContent=`Account for ${activeDM.to} not found`; return; }
+  if (!text) return;
   out.className="result"; out.textContent="Sending…";
-  // Pass channel_id if known; otherwise backend will auto-resolve via from_id
   const r = await fetch("/api/chat/private/reply", {
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({
@@ -431,9 +429,8 @@ document.getElementById("dmReplyForm").addEventListener("submit", async (e) => {
   const d = await r.json().catch(()=>({}));
   if (r.ok && d.sent) {
     out.className="result ok"; out.textContent="Sent";
-    // Append sent message immediately — no reload needed
-    const senderOpt = document.getElementById("dmAccountSelect").selectedOptions[0];
-    const senderName = senderOpt ? senderOpt.text.split(" (")[0] : "Me";
+    // Append sent message immediately
+    const senderName = activeDM.to.split("@")[0];
     const dmMsgs = document.getElementById("dmMessages");
     dmMsgs.insertAdjacentHTML("beforeend", renderDMMsg(senderName, text, new Date().toISOString(), false, null));
     dmMsgs.scrollTop = dmMsgs.scrollHeight;
