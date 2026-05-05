@@ -339,8 +339,9 @@ loadScheduled();
 let activeDM = null;
 
 // Email → account_id map for DM replies (populated from server-side accounts list)
+// All token-valid accounts (not filtered by joined_server) — for DM replies
 const emailToAccountId = {
-  {% for a in accounts %}"{{ a.email }}": "{{ a.id }}"{% if not loop.last %},{% endif %}{% endfor %}
+  {% for a in all_accounts %}"{{ a.email }}": "{{ a.id }}"{% if not loop.last %},{% endif %}{% endfor %}
 };
 
 function renderDMMsg(from, text, timestamp, isNew, image) {

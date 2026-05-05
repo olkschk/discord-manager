@@ -86,8 +86,20 @@ async def chat_page(
     user: str = Depends(require_login),
 ) -> HTMLResponse:
     accounts: list[dict] = []
+    # Accounts for topic chat: joined_server + token_valid
+    accounts: list[dict] = []
     async for acc in discords().find({"token_valid": True, "joined_server": True}).sort("_id", -1):
         accounts.append(
+            {
+                "id": str(acc["_id"]),
+                "email": acc["email"],
+                "username": acc.get("username") or acc["email"],
+            }
+        )
+    # All token-valid accounts for DM reply map (DMs can arrive on any account)
+    all_accounts: list[dict] = []
+    async for acc in discords().find({"token_valid": True}).sort("_id", -1):
+        all_accounts.append(
             {
                 "id": str(acc["_id"]),
                 "email": acc["email"],
@@ -97,7 +109,7 @@ async def chat_page(
     return templates.TemplateResponse(
         request,
         "chat.html",
-        {"user": user, "active": "chat", "accounts": accounts},
+        {"user": user, "active": "chat", "accounts": accounts, "all_accounts": all_accounts},
     )
 
 
