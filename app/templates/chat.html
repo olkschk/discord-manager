@@ -506,7 +506,7 @@ document.getElementById("refreshDMsBtn")?.addEventListener("click", async () => 
 let _dmApiPollCounter = 0;
 async function backgroundDMRefresh() {
   _dmApiPollCounter++;
-  if (_dmApiPollCounter % 6 === 0) {  // every 6×5s = 30s
+  if (_dmApiPollCounter % 2 === 0) {  // every 2×5s = 10s
     await fetch("/api/chat/private/refresh", { method: "POST" });
   }
   await loadConversations();
