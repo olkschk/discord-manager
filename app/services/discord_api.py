@@ -316,6 +316,10 @@ async def send_message(
         logger.warning("send_message network error: %s", exc)
         return None
 
+    # Surface known Discord error codes back to callers via _discord_error key
+    if isinstance(body, dict) and body.get("code"):
+        return {"_discord_error": True, "code": body["code"], "message": body.get("message", "")}
+
     if _retry and not captcha_key:
         solved = await maybe_solve_for_response(
             body, page_url_hint=f"https://discord.com/channels/@me/{channel_id}"

@@ -360,6 +360,11 @@ async def reply_dm(body: DMReplyBody) -> dict:
     msg = await send_message(token, channel_id, body.content, proxy_url=proxy_url)
     if msg is None:
         return {"sent": False}
+    if isinstance(msg, dict) and msg.get("_discord_error"):
+        code = msg.get("code")
+        if code == 50278:
+            return {"sent": False, "error": "no_mutual_guilds"}
+        return {"sent": False, "error": f"discord_error_{code}"}
 
     # Persist the outgoing message so it survives page reload
     from app.database import discords as discords_coll

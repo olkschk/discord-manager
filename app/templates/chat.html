@@ -447,7 +447,7 @@ document.getElementById("dmReplyForm").addEventListener("submit", async (e) => {
     if (d.channel_id) activeDM.channelId = d.channel_id;
   } else {
     out.className="result err";
-    out.textContent = d.error || "Failed";
+    out.textContent = d.error === "no_mutual_guilds" ? "No mutual guilds — Error 50278" : (d.error || "Failed");
   }
 });
 
