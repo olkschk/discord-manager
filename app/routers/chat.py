@@ -262,10 +262,14 @@ async def list_dm_conversations() -> list[dict]:
 
 @router.get("/private/messages")
 async def get_dm_messages(sender: str, to: str) -> list[dict]:
-    """Last 100 DM messages from a specific sender to a specific account email."""
-    cursor = private_messages_coll().find(
-        {"from": sender, "to": to}
-    ).sort("timestamp", -1).limit(100)
+    """Last 100 messages in a DM conversation — both incoming and outgoing."""
+    # Incoming: from sender, to account email
+    # Outgoing: replies we sent (is_outgoing=True, dm_peer=sender, to=account email)
+    query = {"$or": [
+        {"from": sender, "to": to},
+        {"to": to, "dm_peer": sender, "is_outgoing": True},
+    ]}
+    cursor = private_messages_coll().find(query).sort("timestamp", -1).limit(100)
     out: list[dict] = []
     async for m in cursor:
         out.append({
@@ -275,6 +279,7 @@ async def get_dm_messages(sender: str, to: str) -> list[dict]:
             "from": m.get("from"),
             "to": m.get("to"),
             "is_read": m.get("is_read", False),
+            "is_outgoing": m.get("is_outgoing", False),
             "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else None,
             "dm_channel_id": m.get("dm_channel_id"),
         })
@@ -353,4 +358,22 @@ async def reply_dm(body: DMReplyBody) -> dict:
     msg = await send_message(token, channel_id, body.content, proxy_url=proxy_url)
     if msg is None:
         return {"sent": False}
+
+    # Persist the outgoing message so it survives page reload
+    from app.database import discords as discords_coll
+    acc_doc = await discords_coll().find_one({"_id": ObjectId(body.account_id)})
+    our_username = (acc_doc or {}).get("username") or "me"
+    await private_messages_coll().insert_one({
+        "text": body.content,
+        "image": None,
+        "from": our_username,
+        "to": body.to or "",
+        "dm_channel_id": channel_id,
+        "dm_peer": body.sender_username,  # the external user we're replying to
+        "is_outgoing": True,
+        "is_read": True,
+        "timestamp": datetime.now(timezone.utc),
+        "discord_message_id": msg.get("id"),
+    })
+
     return {"sent": True, "message_id": msg.get("id"), "channel_id": channel_id}

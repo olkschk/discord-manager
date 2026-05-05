@@ -344,11 +344,16 @@ const emailToAccountId = {
   {% for a in all_accounts %}"{{ a.email }}": "{{ a.id }}"{% if not loop.last %},{% endif %}{% endfor %}
 };
 
-function renderDMMsg(from, text, timestamp, isNew, image) {
+let dmMessageCount = 0;  // track displayed message count for smart reload
+
+function renderDMMsg(from, text, timestamp, isNew, image, isOutgoing) {
   const time = timestamp ? new Date(timestamp).toLocaleString() : "";
-  return `<article class="msg" style="border-left:1px solid var(--border-visible);padding:6px var(--sp-md);margin:0;">
-    <header class="msg__head" style="margin-bottom:4px;">
-      <span class="msg__from">${escapeHtml(from||"")}</span>
+  const side = isOutgoing
+    ? "border-left:none;border-right:1px solid var(--success);padding:6px var(--sp-md) 6px var(--sp-sm);text-align:right;background:rgba(74,158,92,.05);"
+    : "border-left:1px solid var(--border-visible);padding:6px var(--sp-md);";
+  return `<article class="msg" style="${side}margin:0;">
+    <header class="msg__head" style="margin-bottom:4px;${isOutgoing?"justify-content:flex-end;":""}">
+      <span class="msg__from" style="${isOutgoing?"color:var(--success);":""}">${escapeHtml(from||"")}</span>
       ${time ? `<span class="msg__time">${escapeHtml(time)}</span>` : ""}
       ${isNew ? '<span style="color:var(--accent);font-size:10px;font-family:var(--font-mono);letter-spacing:.1em;">NEW</span>' : ""}
     </header>
@@ -383,6 +388,7 @@ async function loadConversations() {
 
 async function openDM(from, to, channelId) {
   activeDM = {from, to, channelId};
+  dmMessageCount = 0;
   document.getElementById("dmChatTitle").textContent = `${from} → ${to}`;
   document.getElementById("dmReplyForm").hidden = false;
   const dmMsgs = document.getElementById("dmMessages");
@@ -394,7 +400,7 @@ async function openDM(from, to, channelId) {
   if (!data.length) {
     dmMsgs.innerHTML = '<p class="messages__empty">No messages</p>';
   } else {
-    dmMsgs.innerHTML = data.map(m => renderDMMsg(m.from, m.text, m.timestamp, !m.is_read, m.image)).join("");
+    dmMsgs.innerHTML = data.map(m => renderDMMsg(m.from, m.text, m.timestamp, !m.is_read, m.image, m.is_outgoing)).join("");
     dmMsgs.scrollTop = dmMsgs.scrollHeight;
   }
 
@@ -433,7 +439,7 @@ document.getElementById("dmReplyForm").addEventListener("submit", async (e) => {
     // Append sent message immediately
     const senderName = activeDM.to.split("@")[0];
     const dmMsgs = document.getElementById("dmMessages");
-    dmMsgs.insertAdjacentHTML("beforeend", renderDMMsg(senderName, text, new Date().toISOString(), false, null));
+    dmMsgs.insertAdjacentHTML("beforeend", renderDMMsg(senderName, text, new Date().toISOString(), false, null, true));
     dmMsgs.scrollTop = dmMsgs.scrollHeight;
     document.getElementById("dmReplyText").value="";
     if (d.channel_id) activeDM.channelId = d.channel_id;
@@ -494,13 +500,24 @@ document.getElementById("refreshDMsBtn")?.addEventListener("click", async () => 
   btn.disabled = false; btn.textContent = "↻";
 });
 
-// Auto-refresh conversations every 5s when DMs tab is visible
-setInterval(async () => {
-  if (document.getElementById("tabDMs").style.display !== "none") {
-    await loadConversations();
-    await updateDMBadge();
+// Auto-refresh ALL conversations every 5s — runs in background regardless of open tab
+async function backgroundDMRefresh() {
+  await loadConversations();
+  await updateDMBadge();
+  // If a conversation is open, reload its messages when new ones arrive
+  if (activeDM) {
+    const r = await fetch(`/api/chat/private/messages?sender=${encodeURIComponent(activeDM.from)}&to=${encodeURIComponent(activeDM.to)}`);
+    const data = await r.json();
+    if (data.length !== dmMessageCount) {
+      dmMessageCount = data.length;
+      const dmMsgs = document.getElementById("dmMessages");
+      const atBottom = dmMsgs.scrollHeight - dmMsgs.clientHeight <= dmMsgs.scrollTop + 60;
+      dmMsgs.innerHTML = data.map(m => renderDMMsg(m.from, m.text, m.timestamp, false, m.image, m.is_outgoing)).join("");
+      if (atBottom) dmMsgs.scrollTop = dmMsgs.scrollHeight;
+    }
   }
-}, 5000);
+}
+setInterval(backgroundDMRefresh, 5000);
 
 updateDMBadge();
 setInterval(pollUnread, 30000);
