@@ -17,6 +17,7 @@ from app.services.auth_recovery import (
     find_and_authorize_ip,
     follow_verify_link,
     forgot_password,
+    full_verify_account,
     needs_email_verification,
     reset_password_with_token,
     extract_token_from_url,
@@ -399,13 +400,10 @@ async def verify_email_endpoint(account_id: str) -> dict:
             except ValueError:
                 proxy_url = None
 
-    if not await verify_resend(token, proxy_url=proxy_url):
-        return {"ok": False, "error": "verify_resend_failed"}
-
-    await asyncio.sleep(7)
-    new_token = await find_and_authorize_ip(acc["email"], password, proxy_url=proxy_url)
+    # full_verify_account: resend → wait → IMAP fetch → POST /auth/verify → new token
+    new_token = await full_verify_account(token, acc["email"], password, proxy_url=proxy_url)
     if not new_token:
-        return {"ok": False, "error": "verify_link_not_found_or_failed"}
+        return {"ok": False, "error": "verify_failed — check IMAP or try Inbox to see the email"}
 
     if new_token != token:
         await discords().update_one(
