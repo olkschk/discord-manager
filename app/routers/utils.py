@@ -233,6 +233,24 @@ async def join_server(body: JoinServerBody) -> dict:
     return {"results": results}
 
 
+class MarkJoinedBody(BaseModel):
+    account_id: str
+
+
+@router.post("/mark-joined")
+async def mark_joined(body: MarkJoinedBody) -> dict:
+    """Manually set joined_server=True without actually joining Discord."""
+    if not ObjectId.is_valid(body.account_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
+    res = await discords().update_one(
+        {"_id": ObjectId(body.account_id)},
+        {"$set": {"joined_server": True}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+    return {"ok": True}
+
+
 # ── 2FA ──────────────────────────────────────────────────────────────────────
 class TwoFASetupBody(BaseModel):
     account_id: str

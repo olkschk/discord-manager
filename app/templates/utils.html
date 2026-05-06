@@ -209,12 +209,13 @@
         </label>
         <div class="rowlist">
           {% for a in accounts %}
-          <label class="rowlist__row">
+          <div class="rowlist__row" style="grid-template-columns:24px minmax(180px,1fr) minmax(160px,1fr) auto auto;">
             <input type="checkbox" class="acc-check" data-section="join" value="{{ a.id }}" {% if not a.token_valid %}disabled{% endif %} />
             <span class="rowlist__primary">{{ a.email }}</span>
             <span class="rowlist__meta">{{ a.username }}</span>
             <span class="status {% if a.joined_server %}ok{% else %}muted{% endif %}">{{ "joined" if a.joined_server else "not joined" }}</span>
-          </label>
+            <button type="button" class="small mark-joined-btn" data-id="{{ a.id }}" {% if a.joined_server %}style="opacity:.4" title="Already joined"{% endif %}>Join manually</button>
+          </div>
           {% else %}
           <p class="muted">No accounts yet.</p>
           {% endfor %}
@@ -399,6 +400,21 @@ document.getElementById("joinRunBtn").addEventListener("click", async () => {
   const ok = data.results.filter(x => x.ok).length;
   setResult(out, ok > 0, `${ok}/${data.results.length} joined`);
   if (ok > 0) setTimeout(() => location.reload(), 800);
+});
+
+// Join manually
+document.querySelectorAll(".mark-joined-btn").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    btn.disabled = true; btn.textContent = "…";
+    const r = await fetch("/api/utils/mark-joined", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id: btn.dataset.id }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (data.ok) location.reload();
+    else { btn.disabled = false; btn.textContent = "Join manually"; alert("Error: " + (data.detail || r.status)); }
+  });
 });
 
 // 2FA
