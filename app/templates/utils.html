@@ -17,7 +17,7 @@
           <h3 class="panel__title">Donor account</h3>
           <p class="panel__hint">Drives the topic monitor. Pick one valid-token account.</p>
           <div class="rowlist" id="donorList">
-            {% for a in accounts %}
+            {% for a in accounts if a.joined_server %}
             <label class="rowlist__row">
               <input type="radio" name="donor" class="donor-radio" value="{{ a.id }}" {% if a.is_donor %}checked{% endif %} {% if not a.token_valid %}disabled{% endif %} />
               <span class="rowlist__primary">{{ a.email }}</span>
@@ -25,7 +25,7 @@
               <span class="status {% if a.token_valid %}ok{% else %}muted{% endif %}">{{ "valid" if a.token_valid else "invalid" }}</span>
             </label>
             {% else %}
-            <p class="muted">No accounts yet.</p>
+            <p class="muted">No accounts that joined the server yet.</p>
             {% endfor %}
           </div>
           <div style="display:flex; justify-content: space-between; gap: var(--sp-md);">
@@ -249,6 +249,42 @@
           <p class="muted">No accounts yet.</p>
           {% endfor %}
         </div>
+      </div>
+    </section>
+
+    <!-- Email viewer -->
+    <section>
+      <div class="section__head">
+        <span class="section__title">Email viewer</span>
+        <span class="section__sub">Latest email from account mailbox</span>
+      </div>
+      <div class="panel">
+        <div class="split">
+          <label>
+            <span>Account</span>
+            <select id="emailViewerAccount">
+              <option value="">Select account…</option>
+              {% for a in accounts %}
+              <option value="{{ a.id }}">{{ a.email }} · {{ a.username }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label style="display:flex; align-items:end; gap:var(--sp-sm);">
+            <label class="dup-toggle">
+              <input type="checkbox" id="emailViewerAllMail" />
+              <span>All mail (not Discord only)</span>
+            </label>
+            <button type="button" id="emailViewerFetch" class="primary">Fetch latest</button>
+          </label>
+        </div>
+        <div id="emailViewerMeta" style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);margin-top:var(--sp-sm);display:none;">
+          <span id="emailViewerFrom"></span> · <span id="emailViewerSubject"></span> · <span id="emailViewerDate"></span>
+        </div>
+        <div id="emailViewerContainer" style="margin-top:var(--sp-sm);border:1px solid var(--border);border-radius:4px;overflow:hidden;display:none;">
+          <iframe id="emailViewerFrame" sandbox="allow-same-origin allow-popups"
+            style="width:100%;min-height:400px;border:none;background:#fff;" srcdoc=""></iframe>
+        </div>
+        <output id="emailViewerResult" class="result" style="margin-top:var(--sp-sm);"></output>
       </div>
     </section>
   </main>
@@ -577,6 +613,32 @@ document.querySelectorAll(".topic-del").forEach(btn => {
     const r = await fetch(`/api/monitor/topics/${li.dataset.id}`, { method: "DELETE" });
     if (r.ok) li.remove();
   });
+});
+
+// Email viewer
+document.getElementById("emailViewerFetch")?.addEventListener("click", async () => {
+  const out = document.getElementById("emailViewerResult");
+  const accId = document.getElementById("emailViewerAccount").value;
+  const allMail = document.getElementById("emailViewerAllMail").checked;
+  out.className = "result"; out.textContent = "";
+  if (!accId) { out.className = "result err"; out.textContent = "Select account first"; return; }
+  out.textContent = "Fetching…";
+  const r = await fetch(`/api/accounts/${accId}/inbox/latest-html?only_discord=${!allMail}`);
+  const data = await r.json().catch(() => ({}));
+  if (!data.ok) {
+    out.className = "result err";
+    out.textContent = data.error || `Error ${r.status}`;
+    document.getElementById("emailViewerContainer").style.display = "none";
+    document.getElementById("emailViewerMeta").style.display = "none";
+    return;
+  }
+  out.textContent = "";
+  document.getElementById("emailViewerFrom").textContent = data.from_ || "";
+  document.getElementById("emailViewerSubject").textContent = data.subject || "(no subject)";
+  document.getElementById("emailViewerDate").textContent = data.date || "";
+  document.getElementById("emailViewerMeta").style.display = "";
+  document.getElementById("emailViewerContainer").style.display = "";
+  document.getElementById("emailViewerFrame").srcdoc = data.html || "<p>No HTML content</p>";
 });
 </script>
 {% endblock %}

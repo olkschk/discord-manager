@@ -21,7 +21,8 @@ from app.services.auth_recovery import (
     reset_password_with_token,
     extract_token_from_url,
 )
-from app.services.discord_api import build_proxy_url, login_with_password, mfa_totp, validate_token
+from app.services.discord_api import build_proxy_url, login_with_password, mfa_totp, validate_token, verify_resend
+from app.services.imap_client import fetch_latest_html, imap_host_for
 
 router = APIRouter(
     prefix="/api/accounts",
@@ -366,3 +367,85 @@ async def reset_password_endpoint(account_id: str, body: dict) -> dict:
 
     logger.info("Reset password for %s", acc.get("email"))
     return {"ok": True, "rotated_token": bool(new_token)}
+
+
+@router.post("/{account_id}/verify-email")
+async def verify_email_endpoint(account_id: str) -> dict:
+    """Handle the 'Verification Required' Discord screen.
+
+    Flow: POST /auth/verify/resend → wait → IMAP fetch verify link →
+    follow link → POST /auth/verify (+ captcha if needed) → update token.
+    """
+    if not ObjectId.is_valid(account_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
+    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    if acc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+
+    try:
+        token = decrypt(acc["discord_token"])
+        password = decrypt(acc["password"])
+    except ValueError:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Cannot decrypt credentials")
+
+    proxy_url: str | None = None
+    if acc.get("proxy_id"):
+        proxy = await proxies_coll().find_one({"_id": acc["proxy_id"]})
+        if proxy is not None:
+            try:
+                proxy_url = build_proxy_url(
+                    proxy["ip"], proxy["port"], proxy["login"], decrypt(proxy["password"])
+                )
+            except ValueError:
+                proxy_url = None
+
+    if not await verify_resend(token, proxy_url=proxy_url):
+        return {"ok": False, "error": "verify_resend_failed"}
+
+    await asyncio.sleep(7)
+    new_token = await find_and_authorize_ip(acc["email"], password, proxy_url=proxy_url)
+    if not new_token:
+        return {"ok": False, "error": "verify_link_not_found_or_failed"}
+
+    if new_token != token:
+        await discords().update_one(
+            {"_id": ObjectId(account_id)},
+            {"$set": {"discord_token": encrypt(new_token), "token_valid": True}},
+        )
+    logger.info("Email verified for %s", acc.get("email"))
+    return {"ok": True}
+
+
+@router.get("/{account_id}/inbox/latest-html")
+async def get_latest_email_html(
+    account_id: str,
+    only_discord: bool = False,
+) -> dict:
+    """Fetch the newest email from the account's mailbox and return full HTML."""
+    if not ObjectId.is_valid(account_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
+    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    if acc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+
+    mail_doc = await mails().find_one({"email": acc["email"]})
+    enc_pw = (mail_doc or acc).get("password")
+    try:
+        password = decrypt(enc_pw)
+    except (ValueError, TypeError):
+        return {"ok": False, "error": "password_unreadable"}
+
+    if imap_host_for(acc["email"]) is None:
+        return {"ok": False, "error": "no_imap_host"}
+
+    import imaplib
+    try:
+        result = await fetch_latest_html(acc["email"], password, only_discord=only_discord)
+    except imaplib.IMAP4.error as exc:
+        return {"ok": False, "error": f"imap_login_failed: {exc}"}
+    except OSError as exc:
+        return {"ok": False, "error": f"imap_network: {exc}"}
+
+    if result is None:
+        return {"ok": False, "error": "no_emails_found"}
+    return {"ok": True, **result}

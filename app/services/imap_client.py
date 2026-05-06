@@ -117,6 +117,92 @@ def _extract_text(msg: Message) -> str:
     return text
 
 
+def _extract_html(msg: Message) -> str:
+    """Return the raw HTML body of the email (for full rendering)."""
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_type() == "text/html":
+                payload = part.get_payload(decode=True) or b""
+                charset = part.get_content_charset() or "utf-8"
+                try:
+                    return payload.decode(charset, errors="replace")
+                except (LookupError, TypeError):
+                    return payload.decode("utf-8", errors="replace")
+    if msg.get_content_type() == "text/html":
+        payload = msg.get_payload(decode=True) or b""
+        charset = msg.get_content_charset() or "utf-8"
+        try:
+            return payload.decode(charset, errors="replace")
+        except (LookupError, TypeError):
+            return payload.decode("utf-8", errors="replace")
+    # Fall back to plain text wrapped in pre
+    return f"<pre>{_extract_text(msg)}</pre>"
+
+
+def _fetch_latest_html_sync(
+    email_address: str,
+    password: str,
+    host: str,
+    port: int,
+    *,
+    only_discord: bool,
+    timeout: int,
+) -> dict | None:
+    """Fetch the newest email and return its HTML body + metadata."""
+    conn = imaplib.IMAP4_SSL(host, port, timeout=timeout)
+    try:
+        conn.login(email_address, password)
+        conn.select("INBOX", readonly=True)
+        if only_discord:
+            typ, data = conn.search(None, "FROM", "discord")
+        else:
+            typ, data = conn.search(None, "ALL")
+        if typ != "OK":
+            return None
+        ids = (data[0] or b"").split()
+        if not ids:
+            return None
+        raw_id = ids[-1]  # newest
+        typ2, msg_data = conn.fetch(raw_id, "(RFC822)")
+        if typ2 != "OK" or not msg_data:
+            return None
+        for part in msg_data:
+            if isinstance(part, tuple) and len(part) >= 2:
+                msg = email.message_from_bytes(part[1])
+                return {
+                    "from_": parseaddr(msg.get("From", ""))[1] or msg.get("From", ""),
+                    "subject": _decode_header(msg.get("Subject")),
+                    "date": msg.get("Date", ""),
+                    "html": _extract_html(msg),
+                }
+    finally:
+        try:
+            conn.logout()
+        except (imaplib.IMAP4.error, OSError):
+            pass
+    return None
+
+
+async def fetch_latest_html(
+    email_address: str,
+    password: str,
+    *,
+    only_discord: bool = False,
+) -> dict | None:
+    """Fetch the newest email and return its full HTML body. Async wrapper."""
+    settings = get_settings()
+    host_port = imap_host_for(email_address)
+    if host_port is None:
+        return None
+    host, port = host_port
+    return await asyncio.to_thread(
+        _fetch_latest_html_sync,
+        email_address, password, host, port,
+        only_discord=only_discord,
+        timeout=settings.imap_timeout,
+    )
+
+
 def extract_code(body: str) -> str | None:
     for pat in _CODE_PATTERNS:
         m = pat.search(body)

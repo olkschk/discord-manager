@@ -138,6 +138,15 @@ document.querySelectorAll("table.accounts tbody tr[data-id]").forEach((row) => {
     const r = await postForm(`/api/accounts/${id}/validate`, new FormData());
     if (r.ok) location.reload();
   });
+  row.querySelector(".row-verify")?.addEventListener("click", async (e) => {
+    const btn = e.target;
+    btn.disabled = true; btn.textContent = "Verifying…";
+    const resp = await fetch(`/api/accounts/${id}/verify-email`, { method: "POST" });
+    const data = await resp.json().catch(() => ({}));
+    btn.disabled = false; btn.textContent = "Verify";
+    if (data.ok) { alert("Email verified ✓"); location.reload(); }
+    else alert("Verify failed: " + (data.error || resp.status));
+  });
   row.querySelector(".row-relogin")?.addEventListener("click", async (e) => {
     const btn = e.target;
     btn.disabled = true; btn.textContent = "…";
