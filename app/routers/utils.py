@@ -190,27 +190,40 @@ async def join_server(body: JoinServerBody) -> dict:
             c = await gateway_pool.get_or_create(acc_id)
             return await join_invite(tok, code, session_id=c.session_id if c else None, proxy_url=proxy_url)
 
-        out = await _try_join(token)
-
-        # 40002 — account needs email verification; verify via IMAP then retry
-        if isinstance(out, dict) and out.get("_needs_verification"):
-            logger.info("join_server: account %s needs email verification (40002)", acc_id)
+        async def _run_verify_and_retry(tok: str, reason: str) -> tuple[str, dict | None]:
+            """Shared verification flow: verify email → update token → retry join."""
+            logger.info("join_server: %s for %s — running email verification", reason, acc_id)
             try:
                 mail_password = decrypt(acc["password"])
             except (ValueError, KeyError):
-                results.append({"account_id": acc_id, "ok": False, "error": "password_unreadable"})
-                continue
-            new_token = await full_verify_account(token, acc["email"], mail_password, proxy_url=proxy_url)
-            if not new_token:
-                results.append({"account_id": acc_id, "ok": False, "error": "verify_failed"})
-                continue
-            if new_token != token:
+                return tok, None
+            new_tok = await full_verify_account(tok, acc["email"], mail_password, proxy_url=proxy_url)
+            if not new_tok:
+                return tok, None
+            if new_tok != tok:
                 await discords().update_one(
                     {"_id": ObjectId(acc_id)},
-                    {"$set": {"discord_token": encrypt(new_token), "token_valid": True}},
+                    {"$set": {"discord_token": encrypt(new_tok), "token_valid": True}},
                 )
-                token = new_token
-            out = await _try_join(token)
+            return new_tok, await _try_join(new_tok)
+
+        out = await _try_join(token)
+
+        # 40002 detected by join_invite (preflight or POST)
+        if isinstance(out, dict) and out.get("_needs_verification"):
+            token, out = await _run_verify_and_retry(token, "40002 _needs_verification")
+
+        # join failed AND eligibility check confirms verification required
+        elif not (bool(out) and not isinstance(out, dict)):
+            needs_verify = await check_needs_verification(token, proxy_url=proxy_url)
+            if needs_verify:
+                token, out = await _run_verify_and_retry(token, "post-failure eligibility check")
+
+        # verify_resend fallback: if join still fails, try resend+follow as last resort
+        if out is None:
+            resend_needed = await check_needs_verification(token, proxy_url=proxy_url)
+            if resend_needed:
+                token, out = await _run_verify_and_retry(token, "resend fallback")
 
         ok = bool(out) and not (isinstance(out, dict) and out.get("_needs_verification"))
         if ok:
