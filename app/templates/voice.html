@@ -63,28 +63,63 @@
       </article>
     </section>
 
-    <!-- Right: channel templates -->
-    <section>
-      <div class="section__head">
-        <span class="section__title">Saved channels</span>
+    <!-- Right: channel templates + audio player -->
+    <section style="display:grid; gap:var(--sp-xl); align-content:start;">
+
+      <!-- Saved channels -->
+      <div>
+        <div class="section__head">
+          <span class="section__title">Saved channels</span>
+        </div>
+        <article class="panel" style="gap:var(--sp-sm);">
+          <p class="panel__hint">Click to auto-fill Guild + Channel IDs.</p>
+          <div id="vcList" class="topics-list" style="min-height:2rem">
+            <span class="muted" style="font-size:11px;letter-spacing:.15em;text-transform:uppercase">Loading…</span>
+          </div>
+          <form id="vcSaveForm" style="display:grid; gap:var(--sp-sm); margin-top:var(--sp-sm);">
+            <label>
+              <span>Label</span>
+              <input type="text" id="vcLabel" placeholder="General voice" maxlength="64" required />
+            </label>
+            <button type="submit" class="primary small">Save current IDs</button>
+          </form>
+          <output id="vcResult" class="result"></output>
+        </article>
       </div>
 
-      <article class="panel" style="gap:var(--sp-sm);">
-        <p class="panel__hint">Click to auto-fill Guild + Channel IDs.</p>
-
-        <div id="vcList" class="topics-list" style="min-height:2rem">
-          <span class="muted" style="font-size:11px;letter-spacing:.15em;text-transform:uppercase">Loading…</span>
+      <!-- Audio player -->
+      <div>
+        <div class="section__head">
+          <span class="section__title">Audio player</span>
+          <span class="section__sub">Play sound in voice channel</span>
         </div>
+        <article class="panel" style="gap:var(--sp-md);">
+          <p class="panel__hint">Account connects to the selected voice channel and plays the sound. Requires FFmpeg.</p>
 
-        <form id="vcSaveForm" style="display:grid; gap:var(--sp-sm); margin-top:var(--sp-sm);">
           <label>
-            <span>Label</span>
-            <input type="text" id="vcLabel" placeholder="General voice" maxlength="64" required />
+            <span>Sound file</span>
+            <select id="soundFileSelect">
+              <option value="">Loading sounds…</option>
+            </select>
           </label>
-          <button type="submit" class="primary small">Save current IDs</button>
-        </form>
-        <output id="vcResult" class="result"></output>
-      </article>
+
+          <label>
+            <span>Account (joined server)</span>
+            <select id="playAccountSelect">
+              <option value="">Select account…</option>
+              {% for a in accounts %}
+              <option value="{{ a.id }}" data-email="{{ a.email }}">{{ a.username }} ({{ a.email }})</option>
+              {% endfor %}
+            </select>
+          </label>
+
+          <div style="display:flex; gap:var(--sp-sm); align-items:center;">
+            <output id="playResult" class="result" style="flex:1;"></output>
+            <button type="button" id="stopSoundBtn" class="small danger">Stop</button>
+            <button type="button" id="playSoundBtn" class="primary">▶ Play</button>
+          </div>
+        </article>
+      </div>
     </section>
 
   </main>
@@ -166,6 +201,53 @@ document.getElementById("vcSaveForm").addEventListener("submit", async (e) => {
 });
 
 loadVcList();
+
+// ── Audio player ──────────────────────────────────────────────────
+(async () => {
+  const sel = document.getElementById("soundFileSelect");
+  try {
+    const r = await fetch("/api/voice/sounds");
+    const files = await r.json();
+    if (!files.length) {
+      sel.innerHTML = '<option value="">No sounds found in sounds/ folder</option>';
+    } else {
+      sel.innerHTML = '<option value="">Select sound…</option>' +
+        files.map(f => `<option value="${f}">${f}</option>`).join("");
+    }
+  } catch { sel.innerHTML = '<option value="">Error loading sounds</option>'; }
+})();
+
+document.getElementById("playSoundBtn").addEventListener("click", async () => {
+  const out = document.getElementById("playResult");
+  const sound_file = document.getElementById("soundFileSelect").value;
+  const account_id = document.getElementById("playAccountSelect").value;
+  const guild_id = document.getElementById("voiceGuildId").value.trim();
+  const channel_id = document.getElementById("voiceChannelId").value.trim();
+  if (!sound_file) return setResult(out, false, "Select a sound file");
+  if (!account_id) return setResult(out, false, "Select an account");
+  if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild ID and Channel ID");
+  setResult(out, true, "Connecting and playing…");
+  const r = await fetch("/api/voice/play", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_id, guild_id, channel_id, sound_file }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (r.ok && data.ok) setResult(out, true, `▶ Playing: ${data.playing}`);
+  else setResult(out, false, data.error || `Error ${r.status}`);
+});
+
+document.getElementById("stopSoundBtn").addEventListener("click", async () => {
+  const out = document.getElementById("playResult");
+  const account_id = document.getElementById("playAccountSelect").value;
+  if (!account_id) return;
+  await fetch("/api/voice/stop", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_id }),
+  });
+  setResult(out, true, "Stopped");
+});
 
 // ── Connect / Leave ───────────────────────────────────────────────
 document.getElementById("voiceSelectAllBtn").addEventListener("click", () => {

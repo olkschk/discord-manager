@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     gateway_identify_os: str = "Windows"
     gateway_identify_browser: str = "Chrome"
 
+    sounds_dir: str = r"C:\Users\olksc\OneDrive\Desktop\Discord\sounds"
+
     captcha_provider: str = "disabled"  # capsolver | twocaptcha | capmonster | anticaptcha | disabled
     captcha_api_key: str = ""
     captcha_poll_interval: int = 3

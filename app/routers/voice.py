@@ -11,9 +11,11 @@ from pydantic import BaseModel, Field
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
-from app.database import voice_channels
-from app.security import require_login
+from app.config import get_settings
+from app.database import discords, voice_channels
+from app.security import decrypt, require_login
 from app.services import gateway_pool
+from app.services.voice_player import list_sounds, play_sound, stop_playing
 
 router = APIRouter(
     prefix="/api/voice",
@@ -66,6 +68,70 @@ async def disconnect(body: VoiceLeaveBody) -> dict:
     for acc_id in body.account_ids:
         await gateway_pool.close_one(acc_id)
     return {"closed": len(body.account_ids)}
+
+
+# ── Audio playback ───────────────────────────────────────────────────────────
+@router.get("/sounds")
+async def get_sounds() -> list[str]:
+    """List audio files available in the sounds directory."""
+    return list_sounds(get_settings().sounds_dir)
+
+
+class PlaySoundBody(BaseModel):
+    account_id: str
+    guild_id: str
+    channel_id: str
+    sound_file: str  # filename only (relative to sounds_dir)
+
+
+@router.post("/play")
+async def play_sound_endpoint(body: PlaySoundBody) -> dict:
+    """Connect account to voice channel and play a sound file."""
+    import os
+    settings = get_settings()
+
+    # Validate sound file (prevent path traversal)
+    safe_name = os.path.basename(body.sound_file)
+    sound_path = os.path.join(settings.sounds_dir, safe_name)
+
+    # Load account token + proxy
+    acc = await discords().find_one({"_id": ObjectId(body.account_id)})
+    if acc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+    try:
+        token = decrypt(acc["discord_token"])
+    except ValueError:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Token unreadable")
+
+    proxy_url: str | None = None
+    if acc.get("proxy_id"):
+        from app.database import proxies as proxies_coll
+        from app.services.discord_api import build_proxy_url
+        proxy = await proxies_coll().find_one({"_id": acc["proxy_id"]})
+        if proxy:
+            try:
+                proxy_url = build_proxy_url(
+                    proxy["ip"], proxy["port"], proxy["login"], decrypt(proxy["password"])
+                )
+            except ValueError:
+                proxy_url = None
+
+    # Close existing gateway_pool connection — discord.py-self will take over
+    await gateway_pool.close_one(body.account_id)
+
+    return await play_sound(
+        body.account_id, token,
+        body.guild_id, body.channel_id,
+        sound_path, proxy_url=proxy_url,
+    )
+
+
+@router.post("/stop")
+async def stop_sound_endpoint(body: dict) -> dict:
+    """Stop playback for an account and disconnect."""
+    account_id = body.get("account_id", "")
+    await stop_playing(account_id)
+    return {"ok": True}
 
 
 # ── Voice channel templates ───────────────────────────────────────────────────
