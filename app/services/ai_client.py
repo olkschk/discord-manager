@@ -21,16 +21,18 @@ class Identity(TypedDict):
 
 
 _PROMPT = (
-    "Generate one Discord user identity for an English-learner community. "
-    "The persona should feel like a real, casual human aged 18–35. "
-    "Avoid stereotypes, brand names, slurs, and anything political or sexual. "
+    "Generate one Discord user identity for a crypto/Web3 community. "
+    "The persona should feel like a real crypto enthusiast aged 18–35 — a degen, trader, NFT collector, or DeFi user. "
+    "Use crypto slang naturally: ape in, ngmi/wagmi, gm, ser, fren, degen, rekt, moon, bag, alpha, rug, based, chad, nfa, dyor, hodl, on-chain, L2, defi, mint, airdrop, narrative, flip. "
+    "Avoid explicit content, real brand names (Binance, Coinbase etc.), and slurs. "
     "Return ONLY a JSON object with these exact keys:\n"
     '- "username": 2-15 chars, lowercase a-z / digits / underscore only, '
-    "no leading/trailing underscore\n"
-    '- "global_name": display name, 2-30 chars, can include spaces and capitals\n'
-    '- "bio": 30-180 chars, casual one-liner about hobbies/personality\n\n'
-    'Example shape: {"username":"sage_riv","global_name":"Sage Rivers",'
-    '"bio":"Coffee, indie games, trying to read more poetry. Up for a chat."}'
+    "no leading/trailing underscore — crypto-style nick (e.g. eth_maxi, sol_degen, nft_ape)\n"
+    '- "global_name": display name, 2-30 chars, can include spaces, capitals, numbers — '
+    "crypto-themed (e.g. 0xSatoshi, CryptoNomad, DegenKing, WagmiSer)\n"
+    '- "bio": 30-180 chars, casual crypto one-liner — trading, airdrops, NFTs, alpha, vibes\n\n'
+    'Example shape: {"username":"sol_degen_77","global_name":"0xDegen",'
+    '"bio":"Full-time degen. Chasing airdrops and on-chain alpha. ngmi if you\'re not in DeFi. gm ser"}'
 )
 
 

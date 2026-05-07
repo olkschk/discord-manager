@@ -138,15 +138,7 @@ document.querySelectorAll("table.accounts tbody tr[data-id]").forEach((row) => {
     const r = await postForm(`/api/accounts/${id}/validate`, new FormData());
     if (r.ok) location.reload();
   });
-  row.querySelector(".row-verify")?.addEventListener("click", async (e) => {
-    const btn = e.target;
-    btn.disabled = true; btn.textContent = "Verifying…";
-    const resp = await fetch(`/api/accounts/${id}/verify-email`, { method: "POST" });
-    const data = await resp.json().catch(() => ({}));
-    btn.disabled = false; btn.textContent = "Verify";
-    if (data.ok) { alert("Email verified ✓"); location.reload(); }
-    else alert("Verify failed: " + (data.error || resp.status));
-  });
+  // row-verify handled via delegation below
   row.querySelector(".row-relogin")?.addEventListener("click", async (e) => {
     const btn = e.target;
     btn.disabled = true; btn.textContent = "…";
@@ -182,4 +174,26 @@ document.querySelectorAll("table.accounts tbody tr[data-id]").forEach((row) => {
     const resp = await fetch(`/api/accounts/${id}`, { method: "DELETE" });
     if (resp.ok) location.reload();
   });
+});
+
+// Event delegation for .row-verify (more reliable than direct querySelector)
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".row-verify");
+  if (!btn) return;
+  const row = btn.closest("tr[data-id]");
+  if (!row) return;
+  const id = row.dataset.id;
+  btn.disabled = true;
+  btn.textContent = "Verifying…";
+  try {
+    const resp = await fetch(`/api/accounts/${id}/verify-email`, { method: "POST" });
+    const data = await resp.json().catch(() => ({}));
+    if (data.ok) { alert("Email verified ✓"); location.reload(); }
+    else alert("Verify failed: " + (data.error || resp.status));
+  } catch (err) {
+    alert("Network error: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Verify";
+  }
 });

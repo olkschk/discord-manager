@@ -477,7 +477,8 @@ table.accounts .muted { color: var(--text-disabled); }
 .status.err { color: var(--accent); }
 .status.muted { color: var(--text-disabled); }
 
-table.accounts .row-actions { display: flex; gap: var(--sp-xs); justify-content: flex-end; }
+table.accounts .row-actions { display: flex; gap: 3px; justify-content: flex-end; flex-wrap: nowrap; }
+table.accounts .row-actions button { padding: 3px 6px; font-size: 9px; letter-spacing: .06em; white-space: nowrap; }
 
 /* Subtle dot-matrix in stat hero number for the empty state */
 .stat--hero.empty .stat__value { color: var(--text-disabled); }
