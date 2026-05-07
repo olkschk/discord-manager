@@ -161,11 +161,29 @@
             <span>Message ID</span>
             <input type="text" id="reactMessageId" placeholder="123456789012345678" spellcheck="false" />
           </label>
-          <label>
-            <span>Emoji</span>
-            <input type="text" id="reactEmoji" placeholder="👍 or name:id" style="font-size:18px;" />
-          </label>
         </div>
+
+        <!-- Emoji picker -->
+        <div style="margin-top:var(--sp-sm);">
+          <div class="label" style="margin-bottom:var(--sp-sm);">Emoji</div>
+          <div style="display:flex; gap:var(--sp-sm); flex-wrap:wrap;" id="emojiPicker">
+            <button type="button" class="emoji-btn" data-emoji="✅" title="Галочка">✅</button>
+            <button type="button" class="emoji-btn" data-emoji="❤️" title="Сердечко">❤️</button>
+            <button type="button" class="emoji-btn" data-emoji="🔥" title="Огонь">🔥</button>
+            <button type="button" class="emoji-btn" data-emoji="👍" title="Палец вверх">👍</button>
+            <button type="button" class="emoji-btn" data-emoji="😂" title="Смех">😂</button>
+            <button type="button" class="emoji-btn" data-emoji="🚀" title="Ракета">🚀</button>
+            <button type="button" class="emoji-btn" data-emoji="💯" title="100">💯</button>
+            <button type="button" class="emoji-btn" data-emoji="👀" title="Глаза">👀</button>
+            <button type="button" class="emoji-btn" data-emoji="🤝" title="Рукопожатие">🤝</button>
+            <button type="button" class="emoji-btn" data-emoji="⚡" title="Молния">⚡</button>
+          </div>
+          <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);margin-top:var(--sp-xs);">
+            Выбрано: <span id="reactEmojiSelected" style="font-size:18px;">—</span>
+          </div>
+          <input type="hidden" id="reactEmoji" />
+        </div>
+
         <div class="split" style="margin-top:var(--sp-sm);">
           <label>
             <span>Delay min (s)</span>
@@ -353,7 +371,16 @@ document.getElementById("identityRunBtn").addEventListener("click", async () => 
   if (ok > 0) setTimeout(() => location.reload(), 800);
 });
 
-// Reactions
+// Reactions — emoji picker
+document.querySelectorAll(".emoji-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".emoji-btn").forEach(b => b.classList.remove("selected"));
+    btn.classList.add("selected");
+    document.getElementById("reactEmoji").value = btn.dataset.emoji;
+    document.getElementById("reactEmojiSelected").textContent = btn.dataset.emoji;
+  });
+});
+
 document.getElementById("reactSelectAll")?.addEventListener("click", () => {
   document.querySelectorAll('.acc-check[data-section="react"]:not(:disabled)').forEach(c => c.checked = true);
 });
@@ -362,12 +389,13 @@ document.getElementById("reactRunBtn")?.addEventListener("click", async () => {
   const ids = gather("react");
   const channel_id = document.getElementById("reactChannelId").value.trim();
   const message_id = document.getElementById("reactMessageId").value.trim();
-  const emoji = document.getElementById("reactEmoji").value.trim();
+  const emoji = document.getElementById("reactEmoji").value;
   const delay_min = parseFloat(document.getElementById("reactDelayMin").value) || 0;
   const delay_max = parseFloat(document.getElementById("reactDelayMax").value) || 0;
   if (!ids.length) return setResult(out, false, "Select at least one account");
-  if (!channel_id || !message_id || !emoji) return setResult(out, false, "Channel ID, Message ID and emoji required");
-  setResult(out, true, `Reacting with ${ids.length} accounts…`);
+  if (!channel_id || !message_id) return setResult(out, false, "Channel ID and Message ID required");
+  if (!emoji) return setResult(out, false, "Select an emoji first");
+  setResult(out, true, `Reacting ${emoji} with ${ids.length} accounts…`);
   const r = await fetch("/api/chat/react-bulk", {
     method: "POST",
     headers: {"Content-Type": "application/json"},

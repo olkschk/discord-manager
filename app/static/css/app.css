@@ -747,6 +747,20 @@ table.accounts .row-actions button { padding: 3px 6px; font-size: 9px; letter-sp
 .topics-list code { font-size: 11px; color: var(--text-display); }
 .topic-label { color: var(--text-secondary); font-size: 11px; }
 
+/* Emoji picker buttons */
+.emoji-btn {
+  font-size: 24px;
+  background: var(--surface-raised);
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: border-color 150ms var(--ease), background 150ms var(--ease);
+  line-height: 1;
+}
+.emoji-btn:hover { border-color: var(--text-secondary); }
+.emoji-btn.selected { border-color: var(--success); background: rgba(74,158,92,.15); }
+
 /* Donor radio rowlist (utils Monitor section) — narrower than checkbox rowlist */
 .rowlist__row input[type="radio"] {
   width: 14px;

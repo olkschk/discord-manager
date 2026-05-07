@@ -431,9 +431,11 @@ async def add_reaction(
     from urllib.parse import quote
 
     settings = get_settings()
+    # Include location and type=0 params as real Discord client sends
     url = (
         f"{settings.discord_api_base}/channels/{channel_id}/messages/{message_id}"
         f"/reactions/{quote(emoji, safe=':')}/@me"
+        "?location=Message%20Context%20Menu&type=0"
     )
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
