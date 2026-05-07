@@ -10,7 +10,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
-from app.database import messages as messages_coll, private_messages as private_messages_coll
+from app.database import chat_channels, messages as messages_coll, private_messages as private_messages_coll
 from app.security import require_login
 from app.services.account_helpers import load_account_token_and_proxy
 from app.services.discord_api import add_reaction, get_or_create_dm_channel, send_message, send_message_with_files
@@ -201,6 +201,34 @@ async def cancel_scheduled(msg_id: str) -> dict:
     if res.matched_count == 0:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found or already sent")
     return {"cancelled": True}
+
+
+# ── Saved chat channels ───────────────────────────────────────────────────────
+class ChatChannelBody(BaseModel):
+    channel_id: str = Field(..., min_length=1)
+    label: str = Field(..., min_length=1, max_length=64)
+
+
+@router.get("/channels")
+async def list_chat_channels() -> list[dict]:
+    out: list[dict] = []
+    async for ch in chat_channels().find().sort("label", 1):
+        out.append({"id": str(ch["_id"]), "channel_id": ch["channel_id"], "label": ch.get("label", "")})
+    return out
+
+
+@router.post("/channels")
+async def save_chat_channel(body: ChatChannelBody) -> dict:
+    res = await chat_channels().insert_one({"channel_id": body.channel_id.strip(), "label": body.label})
+    return {"id": str(res.inserted_id), "channel_id": body.channel_id, "label": body.label}
+
+
+@router.delete("/channels/{ch_id}")
+async def delete_chat_channel(ch_id: str) -> dict:
+    if not ObjectId.is_valid(ch_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid id")
+    await chat_channels().delete_one({"_id": ObjectId(ch_id)})
+    return {"deleted": True}
 
 
 # ── Topic messages ────────────────────────────────────────────────────────────

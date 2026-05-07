@@ -82,6 +82,10 @@ def voice_channels() -> "AsyncIOMotorCollection":
     return db()["voice_channels"]
 
 
+def chat_channels() -> "AsyncIOMotorCollection":
+    return db()["chat_channels"]
+
+
 async def _ensure_indexes() -> None:
     await mails().create_index("email", unique=True)
     await discords().create_index("email", unique=True)

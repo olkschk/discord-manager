@@ -30,6 +30,22 @@
           </form>
         </div>
 
+        <!-- Saved channels -->
+        <div>
+          <div class="section__head" style="padding-bottom:var(--sp-sm); margin-bottom:var(--sp-sm);">
+            <span class="section__title">Saved</span>
+            <button type="button" class="small" id="saveChannelBtn" title="Save current channel ID">+ Save</button>
+          </div>
+          <div id="savedChannelsList" class="topics-list"></div>
+          <form id="saveChannelForm" hidden style="display:grid; gap:var(--sp-sm); margin-top:var(--sp-sm);">
+            <input type="text" id="saveChannelLabel" placeholder="Label (e.g. #general)" maxlength="64" required />
+            <div style="display:flex; gap:var(--sp-sm); justify-content:flex-end;">
+              <button type="button" class="small" id="cancelSaveChannel">Cancel</button>
+              <button type="submit" class="small primary">Save</button>
+            </div>
+          </form>
+        </div>
+
         <!-- Scheduled messages list -->
         <div>
           <div class="section__head" style="padding-bottom:var(--sp-sm); margin-bottom:var(--sp-sm);">
@@ -154,6 +170,65 @@ document.querySelectorAll(".chat-subtab").forEach(btn => {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
+
+// ── Saved channels ───────────────────────────────────────────────────────────
+async function loadSavedChannels() {
+  const r = await fetch("/api/chat/channels");
+  const data = await r.json();
+  const el = document.getElementById("savedChannelsList");
+  if (!data.length) {
+    el.innerHTML = '<li class="muted">No saved channels</li>';
+    return;
+  }
+  el.innerHTML = data.map(ch => `
+    <li data-id="${escapeHtml(ch.id)}" style="cursor:pointer;">
+      <code style="font-size:10px;">${escapeHtml(ch.channel_id)}</code>
+      <span class="topic-label">${escapeHtml(ch.label)}</span>
+      <button type="button" class="small danger" data-del="${escapeHtml(ch.id)}" style="padding:1px 5px;font-size:9px;">×</button>
+    </li>
+  `).join("");
+  el.querySelectorAll("li[data-id]").forEach(li => {
+    li.addEventListener("click", (e) => {
+      if (e.target.dataset.del) return;
+      const ch = data.find(c => c.id === li.dataset.id);
+      if (!ch) return;
+      document.getElementById("topicInput").value = ch.channel_id;
+      document.getElementById("topicForm").dispatchEvent(new Event("submit"));
+    });
+  });
+  el.querySelectorAll("[data-del]").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await fetch(`/api/chat/channels/${btn.dataset.del}`, { method: "DELETE" });
+      loadSavedChannels();
+    });
+  });
+}
+
+document.getElementById("saveChannelBtn")?.addEventListener("click", () => {
+  const tid = document.getElementById("topicInput").value.trim();
+  const form = document.getElementById("saveChannelForm");
+  form.hidden = false;
+  document.getElementById("saveChannelLabel").focus();
+});
+document.getElementById("cancelSaveChannel")?.addEventListener("click", () => {
+  document.getElementById("saveChannelForm").hidden = true;
+  document.getElementById("saveChannelLabel").value = "";
+});
+document.getElementById("saveChannelForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const channel_id = document.getElementById("topicInput").value.trim();
+  const label = document.getElementById("saveChannelLabel").value.trim();
+  if (!channel_id) { alert("Open a channel first"); return; }
+  await fetch("/api/chat/channels", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ channel_id, label }),
+  });
+  document.getElementById("saveChannelForm").hidden = true;
+  document.getElementById("saveChannelLabel").value = "";
+  loadSavedChannels();
+});
+loadSavedChannels();
 
 // ── Topics ────────────────────────────────────────────────────────────────────
 const accountSelect = document.getElementById("accountSelect");
