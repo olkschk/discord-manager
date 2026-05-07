@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     gateway_identify_browser: str = "Chrome"
 
     sounds_dir: str = r"C:\Users\olksc\OneDrive\Desktop\Discord\sounds"
+    ffmpeg_path: str = "ffmpeg"  # override with full path if not in PATH
 
     captcha_provider: str = "disabled"  # capsolver | twocaptcha | capmonster | anticaptcha | disabled
     captcha_api_key: str = ""

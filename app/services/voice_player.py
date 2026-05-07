@@ -1,7 +1,7 @@
 """Voice audio player using discord.py-self.
 
 Connects an account to a Discord voice channel and plays a local audio file.
-Uses FFmpegOpusAudio — requires FFmpeg installed and on PATH.
+FFmpeg is bundled in bin/ffmpeg.exe relative to the project root.
 
 One play session per account (tracked by _sessions dict).
 """
@@ -10,6 +10,17 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+
+# Project root = two levels up from this file (services/ -> app/ -> project/)
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
+_BUNDLED_FFMPEG = _PROJECT_ROOT / "bin" / "ffmpeg.exe"
+
+
+def _resolve_ffmpeg() -> str:
+    """Return path to ffmpeg: bundled bin/ffmpeg.exe if present, else system 'ffmpeg'."""
+    if _BUNDLED_FFMPEG.exists():
+        return str(_BUNDLED_FFMPEG)
+    return "ffmpeg"
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +111,7 @@ async def play_sound(
                 )
 
             vc.play(
-                discord.FFmpegOpusAudio(str(sound_file)),
+                discord.FFmpegOpusAudio(str(sound_file), executable=_resolve_ffmpeg()),
                 after=after_play,
             )
 

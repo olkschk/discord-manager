@@ -1,3 +1,7 @@
+# FFmpeg binary (too large for git — copy bin/ffmpeg.exe manually)
+bin/*.exe
+bin/*.dll
+
 # Environments & secrets
 .env
 .env.*
