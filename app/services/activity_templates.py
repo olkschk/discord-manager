@@ -1,13 +1,43 @@
 """Activity templates for Spotify and games — copied from discord-farm/disc/activity.py.
 
 Icons show up in Discord because:
-- Spotify: large_image="spotify:{track_id}" → Discord fetches album art from Spotify CDN
-- Games: application_id + large_image key from Discord's app assets endpoint
+- Spotify: large_image must be the Spotify ALBUM IMAGE ID (not track_id).
+  Format: "spotify:ab67616d0000b273{hex}" — fetched from Spotify's public oembed API.
+- Games: application_id + large_image URL → shows game icon.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 import random
 import time
+
+import aiohttp
+
+logger = logging.getLogger(__name__)
+
+# Cache: track_id → spotify image id (e.g. "ab67616d0000b273...")
+_image_id_cache: dict[str, str] = {}
+
+
+async def _fetch_spotify_image_id(track_id: str) -> str | None:
+    """Fetch album cover image ID from Spotify's public oembed endpoint (no auth)."""
+    if track_id in _image_id_cache:
+        return _image_id_cache[track_id]
+    try:
+        url = f"https://open.spotify.com/oembed?url=https://open.spotify.com/track/{track_id}"
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
+                if r.status == 200:
+                    data = await r.json()
+                    img_url = data.get("thumbnail_url", "")
+                    if "i.scdn.co/image/" in img_url:
+                        image_id = img_url.split("i.scdn.co/image/")[-1]
+                        _image_id_cache[track_id] = image_id
+                        return image_id
+    except Exception as exc:
+        logger.debug("Spotify oembed fetch failed for %s: %s", track_id, exc)
+    return None
 
 
 SPOTIFY_TRACKS = [
@@ -127,12 +157,21 @@ GAMES = [
 ]
 
 
-def build_spotify_activity(track: dict | None = None) -> dict:
-    """Build a full Spotify activity payload for gateway op 3.
-    Discord shows album art via spotify:{track_id} large_image."""
+async def build_spotify_activity(track: dict | None = None) -> dict:
+    """Build a full Spotify activity payload with real album art.
+
+    Fetches the album image ID from Spotify's public oembed API (no auth needed).
+    large_image format: "spotify:{album_image_id}" — Discord fetches art from Spotify CDN.
+    Falls back to track_id if oembed fails (shows ? placeholder).
+    """
     t = track or random.choice(SPOTIFY_TRACKS)
     now_ms = int(time.time() * 1000)
     offset = random.randint(15_000, max(15_001, t["duration"] - 30_000))
+
+    # Fetch real album image ID — the key for album art in Discord presence
+    image_id = await _fetch_spotify_image_id(t["track_id"])
+    large_image = f"spotify:{image_id}" if image_id else f"spotify:{t['track_id']}"
+
     return {
         "type": 2,
         "name": "Spotify",
@@ -141,7 +180,7 @@ def build_spotify_activity(track: dict | None = None) -> dict:
         "details": t["title"],
         "state": t["artist"],
         "assets": {
-            "large_image": f"spotify:{t['track_id']}",
+            "large_image": large_image,
             "large_text": t["album"],
         },
         "timestamps": {
@@ -172,10 +211,10 @@ def build_game_activity(game: dict | None = None) -> dict:
     }
 
 
-def build_random_activity() -> dict:
+async def build_random_activity() -> dict:
     """50/50 Spotify or game."""
     if random.random() < 0.5:
-        return build_spotify_activity()
+        return await build_spotify_activity()
     return build_game_activity()
 
 

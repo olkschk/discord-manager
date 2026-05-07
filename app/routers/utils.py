@@ -327,12 +327,12 @@ async def set_activity(body: ActivityBody) -> dict:
     results: list[dict] = []
     for acc_id in body.account_ids:
         if body.mode == "spotify":
-            act = build_spotify_activity()
+            act = await build_spotify_activity()
         elif body.mode == "game":
             game = next((g for g in GAMES if g["name"] == body.game_name), None)
             act = build_game_activity(game)
         else:
-            act = build_random_activity()
+            act = await build_random_activity()
         ok = await gateway_pool.set_activity(acc_id, activity=act)
         results.append({"account_id": acc_id, "ok": ok, "activity_name": act.get("name")})
     return {"results": results}
