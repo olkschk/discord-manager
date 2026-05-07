@@ -61,9 +61,8 @@ async def play_sound(
     ready_event = asyncio.Event()
     error_holder: list[str] = []
 
-    intents = discord.Intents.default()
-    intents.guilds = True
-    client = discord.Client(proxy=proxy_url, intents=intents)
+    # discord.py-self doesn't use Intents
+    client = discord.Client(proxy=proxy_url) if proxy_url else discord.Client()
     _sessions[account_id] = client
 
     @client.event
