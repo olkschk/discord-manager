@@ -159,17 +159,19 @@ class GatewayConnection:
     async def set_presence(
         self,
         *,
-        activity_type: int,
-        activity_name: str,
+        activity: dict | None = None,
+        activity_type: int = 0,
+        activity_name: str = "",
         status: str = "online",
     ) -> None:
-        """activity_type: 0=Playing, 1=Streaming, 2=Listening, 3=Watching, 5=Competing."""
+        """Send PRESENCE_UPDATE. Pass a full `activity` dict (preferred) or simple type+name."""
+        act = activity or {"name": activity_name, "type": activity_type}
         await self._send(
             {
                 "op": OP_PRESENCE_UPDATE,
                 "d": {
                     "since": None,
-                    "activities": [{"name": activity_name, "type": activity_type}],
+                    "activities": [act],
                     "status": status,
                     "afk": False,
                 },

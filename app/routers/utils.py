@@ -300,19 +300,41 @@ async def setup_two_fa(body: TwoFASetupBody) -> dict:
 
 
 # ── Activity (gateway PRESENCE_UPDATE) ──────────────────────────────────────
+from app.services.activity_templates import (
+    GAME_NAMES, GAMES, SPOTIFY_TRACKS,
+    build_game_activity, build_random_activity, build_spotify_activity,
+)
+
+
 class ActivityBody(BaseModel):
     account_ids: list[str] = Field(..., min_length=1)
-    activity_type: int = Field(0, ge=0, le=5)  # 0=Playing,1=Streaming,2=Listening,3=Watching,5=Competing
-    activity_name: str = Field(..., min_length=1, max_length=128)
+    mode: str = Field("random")      # random | spotify | game
+    game_name: str | None = None     # specific game name (or random if None)
+
+
+@router.get("/activity/templates")
+async def get_activity_templates() -> dict:
+    """Return available games and a sample Spotify track for the UI."""
+    return {
+        "games": GAME_NAMES,
+        "spotify_sample": f"{SPOTIFY_TRACKS[0]['title']} — {SPOTIFY_TRACKS[0]['artist']}",
+    }
 
 
 @router.post("/activity")
 async def set_activity(body: ActivityBody) -> dict:
-    """Set the same activity on N accounts via persistent gateway connections."""
+    """Set Spotify or game activity (with proper icons) on N accounts."""
     results: list[dict] = []
     for acc_id in body.account_ids:
-        ok = await gateway_pool.set_activity(acc_id, body.activity_type, body.activity_name)
-        results.append({"account_id": acc_id, "ok": ok})
+        if body.mode == "spotify":
+            act = build_spotify_activity()
+        elif body.mode == "game":
+            game = next((g for g in GAMES if g["name"] == body.game_name), None)
+            act = build_game_activity(game)
+        else:
+            act = build_random_activity()
+        ok = await gateway_pool.set_activity(acc_id, activity=act)
+        results.append({"account_id": acc_id, "ok": ok, "activity_name": act.get("name")})
     return {"results": results}
 
 

@@ -97,15 +97,20 @@ def is_connected(account_id: str) -> bool:
 
 # ── High-level operations (orchestrate WS + DB persistence) ─────────────
 async def set_activity(
-    account_id: str, activity_type: int, activity_name: str
+    account_id: str,
+    activity_type: int = 0,
+    activity_name: str = "",
+    activity: dict | None = None,
 ) -> bool:
+    """Set activity. Pass a full `activity` dict (Spotify/game with icons) or simple type+name."""
     conn = await get_or_create(account_id)
     if conn is None:
         return False
-    await conn.set_presence(activity_type=activity_type, activity_name=activity_name)
+    await conn.set_presence(activity=activity, activity_type=activity_type, activity_name=activity_name)
+    stored = activity or {"type": activity_type, "name": activity_name}
     await discords().update_one(
         {"_id": ObjectId(account_id)},
-        {"$set": {"activity": {"type": activity_type, "name": activity_name}}},
+        {"$set": {"activity": stored}},
     )
     return True
 

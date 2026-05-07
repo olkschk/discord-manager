@@ -76,22 +76,22 @@
           Sets a custom presence via persistent gateway WebSocket. Activity disappears when the
           process restarts (re-apply after restart).
         </p>
-        <div class="split">
+        <!-- Mode selector -->
+        <div style="display:flex; gap:var(--sp-sm); margin-bottom:var(--sp-sm);">
+          <button type="button" class="activity-mode-btn primary" data-mode="random">🎲 Random</button>
+          <button type="button" class="activity-mode-btn" data-mode="spotify">🎵 Spotify</button>
+          <button type="button" class="activity-mode-btn" data-mode="game">🎮 Game</button>
+        </div>
+        <!-- Game selector (hidden unless game mode) -->
+        <div id="activityGamePicker" style="display:none; margin-bottom:var(--sp-sm);">
           <label>
-            <span>Type</span>
-            <select id="activityType">
-              <option value="0">Playing</option>
-              <option value="1">Streaming</option>
-              <option value="2">Listening to</option>
-              <option value="3">Watching</option>
-              <option value="5">Competing in</option>
+            <span>Game</span>
+            <select id="activityGameName">
+              <option value="">Random game</option>
             </select>
           </label>
-          <label>
-            <span>Name</span>
-            <input type="text" id="activityName" placeholder="Fortnite / Spotify / English class…" maxlength="128" />
-          </label>
         </div>
+        <input type="hidden" id="activityMode" value="random" />
         <div class="rowlist">
           {% for a in accounts %}
           <label class="rowlist__row">
@@ -485,27 +485,51 @@ document.querySelectorAll(".mfa-code-btn").forEach(btn => {
   });
 });
 
-// Activity
+// Activity — load game list on page load
+(async () => {
+  try {
+    const r = await fetch("/api/utils/activity/templates");
+    const data = await r.json();
+    const sel = document.getElementById("activityGameName");
+    if (sel && data.games) {
+      data.games.forEach(g => {
+        const opt = document.createElement("option");
+        opt.value = g; opt.textContent = g;
+        sel.appendChild(opt);
+      });
+    }
+  } catch {}
+})();
+
+document.querySelectorAll(".activity-mode-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".activity-mode-btn").forEach(b => b.classList.remove("primary"));
+    btn.classList.add("primary");
+    document.getElementById("activityMode").value = btn.dataset.mode;
+    document.getElementById("activityGamePicker").style.display = btn.dataset.mode === "game" ? "" : "none";
+  });
+});
+
 document.getElementById("activitySelectAll")?.addEventListener("click", () => {
   document.querySelectorAll('.acc-check[data-section="activity"]:not(:disabled)').forEach(c => c.checked = true);
 });
 document.getElementById("activityApplyBtn")?.addEventListener("click", async () => {
   const out = document.getElementById("activityResult");
   const ids = gather("activity");
-  const activity_type = parseInt(document.getElementById("activityType").value, 10);
-  const activity_name = document.getElementById("activityName").value.trim();
+  const mode = document.getElementById("activityMode").value;
+  const game_name = document.getElementById("activityGameName")?.value || null;
   if (!ids.length) return setResult(out, false, "Select at least one account");
-  if (!activity_name) return setResult(out, false, "Activity name required");
-  setResult(out, true, `Applying for ${ids.length}…`);
+  setResult(out, true, `Applying ${mode} activity for ${ids.length}…`);
   const r = await fetch("/api/utils/activity", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ account_ids: ids, activity_type, activity_name }),
+    body: JSON.stringify({ account_ids: ids, mode, game_name }),
   });
   const data = await r.json();
   if (!r.ok) return setResult(out, false, `Error ${r.status}`);
   const ok = data.results.filter(x => x.ok).length;
-  setResult(out, ok > 0, `${ok}/${data.results.length} updated`);
+  const name = data.results.find(x => x.ok)?.activity_name || "";
+  setResult(out, ok > 0, `${ok}/${data.results.length} — ${name}`);
 });
 document.getElementById("activityClearBtn")?.addEventListener("click", async () => {
   const out = document.getElementById("activityResult");
