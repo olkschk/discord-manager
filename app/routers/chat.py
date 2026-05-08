@@ -234,14 +234,18 @@ async def delete_chat_channel(ch_id: str) -> dict:
 # ── Topic messages ────────────────────────────────────────────────────────────
 @router.get("/topic/{topic_id}/messages")
 async def list_topic_messages(topic_id: str) -> list[dict]:
-    cursor = messages_coll().find({"topic": topic_id}).sort("timestamp", -1).limit(100)
+    cursor = messages_coll().find({"topic": topic_id}).sort("mid", -1).limit(100)
     out: list[dict] = []
     async for m in cursor:
         out.append({
             "id": str(m["_id"]),
+            "discord_message_id": m.get("discord_message_id"),
             "text": m.get("text", ""),
             "image": m.get("image"),
             "from": m.get("from") or m.get("sender"),
+            "avatar_url": m.get("avatar_url"),
+            "reply_to_author": m.get("reply_to_author"),
+            "reply_to_content": m.get("reply_to_content"),
             "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else None,
         })
     return list(reversed(out))

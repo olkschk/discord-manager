@@ -24,6 +24,7 @@ from app.routers import (
     voice,
 )
 from app.services import gateway_pool, monitor as monitor_service
+from app.services import topic_listener
 
 
 @asynccontextmanager
@@ -32,9 +33,11 @@ async def lifespan(app: FastAPI):
     configure_logging(settings.log_level)
     await database.connect()
     monitor_service.start()
+    topic_listener.start()   # real-time MESSAGE_CREATE via gateway
     try:
         yield
     finally:
+        await topic_listener.stop()
         await monitor_service.stop()
         await gateway_pool.close_all()
         await database.disconnect()
