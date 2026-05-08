@@ -253,7 +253,7 @@
         <p class="panel__hint">Setup creates a Discord-side TOTP secret and stores it encrypted. Get-code returns the current 6-digit code.</p>
         <div class="rowlist">
           {% for a in accounts %}
-          <div class="rowlist__row" data-account="{{ a.id }}">
+          <div class="rowlist__row" data-account="{{ a.id }}" style="grid-template-columns:1fr auto auto auto;">
             <span class="rowlist__primary">{{ a.email }}</span>
             <span class="status {% if a.has_2fa %}ok{% else %}muted{% endif %} mfa-status">{{ "on" if a.has_2fa else "off" }}</span>
             <span class="mfa-code muted">—</span>
