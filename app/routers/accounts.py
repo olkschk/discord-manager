@@ -182,6 +182,17 @@ async def validate_one(account_id: str) -> dict:
     return {"valid": is_valid}
 
 
+@router.patch("/{account_id}/group")
+async def set_group(account_id: str, body: dict) -> dict:
+    group = body.get("group", "Masovka")
+    if group not in ("Influencer", "Chatter", "Masovka"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid group")
+    if not ObjectId.is_valid(account_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
+    await discords().update_one({"_id": ObjectId(account_id)}, {"$set": {"group": group}})
+    return {"ok": True, "group": group}
+
+
 @router.delete("/{account_id}")
 async def delete_account(account_id: str) -> dict:
     if not ObjectId.is_valid(account_id):

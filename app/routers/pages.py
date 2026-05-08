@@ -32,6 +32,7 @@ async def dashboard(
                 "joined_stream": acc.get("joined_stream", False),
                 "has_2fa": acc.get("two_fa_secret") is not None,
                 "is_donor": acc.get("is_donor", False),
+                "group": acc.get("group", "Masovka"),
             }
         )
 

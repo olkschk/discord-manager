@@ -73,8 +73,23 @@
       </aside>
 
       <!-- Right: messages + send -->
-      <section style="display:grid; grid-template-rows:auto 1fr auto; overflow:hidden;">
-        <div style="padding:var(--sp-md) var(--sp-lg); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+      <section style="display:grid; grid-template-rows:auto auto 1fr auto; overflow:hidden;">
+
+        <!-- Account picker — icons above chat -->
+        <div style="padding:var(--sp-sm) var(--sp-lg); border-bottom:1px solid var(--border); display:flex; gap:var(--sp-sm); flex-wrap:wrap; align-items:center; min-height:44px;">
+          <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-disabled);margin-right:var(--sp-xs);">Send as:</span>
+          {% for a in accounts %}
+          <button type="button" class="acc-icon-btn" data-id="{{ a.id }}" title="{{ a.email }}"
+            style="font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;padding:4px 10px;background:var(--surface-raised);border:1px solid var(--border-visible);border-radius:4px;cursor:pointer;color:var(--text-secondary);transition:all 150ms;">
+            {{ a.username }}
+          </button>
+          {% else %}
+          <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-disabled);">No accounts on server</span>
+          {% endfor %}
+          <input type="hidden" id="accountSelect" value="" />
+        </div>
+
+        <div style="padding:var(--sp-sm) var(--sp-lg); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
           <span class="section__title" id="topicLabel" style="color:var(--text-secondary)">No topic open</span>
           <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-disabled);" id="messageCount">—</span>
         </div>
@@ -85,12 +100,6 @@
 
         <form id="sendForm" class="send" style="border-top:1px solid var(--border); border-radius:0; padding:var(--sp-md) var(--sp-lg); gap:var(--sp-sm);">
           <div class="send__row">
-            <select id="accountSelect" required style="flex:1;">
-              <option value="">Select account…</option>
-              {% for a in accounts %}
-              <option value="{{ a.id }}">{{ a.username }} ({{ a.email }})</option>
-              {% endfor %}
-            </select>
             <span id="replyChip" class="reply-chip" hidden>
               ↩ <code id="replyId"></code>
               <button type="button" id="cancelReply">×</button>
@@ -231,7 +240,21 @@ document.getElementById("saveChannelForm")?.addEventListener("submit", async (e)
 loadSavedChannels();
 
 // ── Topics ────────────────────────────────────────────────────────────────────
+// Account icon picker
 const accountSelect = document.getElementById("accountSelect");
+document.querySelectorAll(".acc-icon-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".acc-icon-btn").forEach(b => {
+      b.style.borderColor = "var(--border-visible)";
+      b.style.color = "var(--text-secondary)";
+      b.style.background = "var(--surface-raised)";
+    });
+    btn.style.borderColor = "var(--success)";
+    btn.style.color = "var(--text-display)";
+    btn.style.background = "rgba(74,158,92,.12)";
+    accountSelect.value = btn.dataset.id;
+  });
+});
 const topicInput = document.getElementById("topicInput");
 const messagesEl = document.getElementById("messages");
 let currentTopic = null, replyTo = null;

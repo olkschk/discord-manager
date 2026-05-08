@@ -130,6 +130,17 @@ document.getElementById("inboxRefresh")?.addEventListener("click", loadInbox);
 inboxModal?.addEventListener("click", (e) => { if (e.target === inboxModal) closeInbox(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !inboxModal.hidden) closeInbox(); });
 
+// ── Group selector ────────────────────────────────────────────────────────
+document.querySelectorAll(".group-select").forEach(sel => {
+  sel.addEventListener("change", async () => {
+    await fetch(`/api/accounts/${sel.dataset.id}/group`, {
+      method: "PATCH",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ group: sel.value }),
+    });
+  });
+});
+
 // ── Row actions ──────────────────────────────────────────────────────────
 document.querySelectorAll("table.accounts tbody tr[data-id]").forEach((row) => {
   const id = row.dataset.id;

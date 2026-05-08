@@ -88,8 +88,7 @@
               <th>Token</th>
               <th>2FA</th>
               <th>Server</th>
-              <th>Voice</th>
-              <th>Stream</th>
+              <th>Group</th>
               <th></th>
             </tr>
           </thead>
@@ -106,8 +105,13 @@
               <td>{% if a.token_valid %}<span class="status ok">valid</span>{% else %}<span class="status err">invalid</span>{% endif %}</td>
               <td>{% if a.has_2fa %}<span class="status ok">on</span>{% else %}<span class="status muted">off</span>{% endif %}</td>
               <td>{% if a.joined_server %}<span class="dot ok"></span>{% else %}<span class="dot"></span>{% endif %}</td>
-              <td>{% if a.joined_voice %}<span class="dot ok"></span>{% else %}<span class="dot"></span>{% endif %}</td>
-              <td>{% if a.joined_stream %}<span class="dot ok"></span>{% else %}<span class="dot"></span>{% endif %}</td>
+              <td>
+                <select class="group-select" data-id="{{ a.id }}" style="background:var(--black);color:var(--text-primary);border:1px solid var(--border-visible);border-radius:4px;padding:3px 6px;font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;">
+                  <option value="Masovka" {% if a.group == "Masovka" %}selected{% endif %}>Masovka</option>
+                  <option value="Chatter" {% if a.group == "Chatter" %}selected{% endif %}>Chatter</option>
+                  <option value="Influencer" {% if a.group == "Influencer" %}selected{% endif %}>Influencer</option>
+                </select>
+              </td>
               <td class="row-actions">
                 <button type="button" class="small row-validate">Validate</button>
                 <button type="button" class="small row-relogin">Login</button>
@@ -118,7 +122,7 @@
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="10" class="empty">No accounts yet — ingest some above</td></tr>
+            <tr><td colspan="9" class="empty">No accounts yet — ingest some above</td></tr>
             {% endfor %}
           </tbody>
         </table>
