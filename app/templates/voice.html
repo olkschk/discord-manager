@@ -63,36 +63,7 @@
       </article>
     </section>
 
-    <!-- Stream watcher -->
-    <section>
-      <div class="section__head">
-        <span class="section__title">Watch stream</span>
-        <span class="section__sub">Join Go Live as viewer</span>
-      </div>
-      <article class="panel" style="gap:var(--sp-md);">
-        <p class="panel__hint">Account joins the voice channel and watches the ongoing Go Live stream. Guild ID + Channel ID from the left panel are used.</p>
-        <label>
-          <span>Account (joined server)</span>
-          <select id="streamAccountSelect">
-            <option value="">Select account…</option>
-            {% for a in accounts %}
-            <option value="{{ a.id }}">{{ a.username }} ({{ a.email }})</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>
-          <span>Streamer User ID <span style="color:var(--text-disabled);">(optional — speeds up connect)</span></span>
-          <input type="text" id="streamerUserId" placeholder="Discord User ID of the streamer" spellcheck="false" />
-        </label>
-        <div style="display:flex; gap:var(--sp-sm); align-items:center;">
-          <output id="streamResult" class="result" style="flex:1;"></output>
-          <button type="button" id="stopStreamBtn" class="small danger">Stop</button>
-          <button type="button" id="watchStreamBtn" class="primary">👁 Watch</button>
-        </div>
-      </article>
-    </section>
-
-    <!-- Right: channel templates + audio player -->
+    <!-- Right: channel templates + audio player + stream watcher -->
     <section style="display:grid; gap:var(--sp-xl); align-content:start;">
 
       <!-- Saved channels -->
@@ -146,6 +117,35 @@
             <output id="playResult" class="result" style="flex:1;"></output>
             <button type="button" id="stopSoundBtn" class="small danger">Stop</button>
             <button type="button" id="playSoundBtn" class="primary">▶ Play</button>
+          </div>
+        </article>
+      </div>
+
+      <!-- Watch stream -->
+      <div>
+        <div class="section__head" style="flex-direction:column; align-items:flex-start; gap:2px;">
+          <span class="section__title">Watch stream</span>
+          <span class="section__sub">Join Go Live as viewer</span>
+        </div>
+        <article class="panel" style="gap:var(--sp-sm);">
+          <p class="panel__hint">Connects to voice + watches active Go Live. Uses Guild / Channel ID from the left panel.</p>
+          <label>
+            <span>Account</span>
+            <select id="streamAccountSelect">
+              <option value="">Select account…</option>
+              {% for a in accounts %}
+              <option value="{{ a.id }}">{{ a.username }} ({{ a.email }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>Streamer User ID <span style="color:var(--text-disabled);">(optional)</span></span>
+            <input type="text" id="streamerUserId" placeholder="Discord ID of the streamer" spellcheck="false" />
+          </label>
+          <div style="display:flex; gap:var(--sp-sm); align-items:center;">
+            <output id="streamResult" class="result" style="flex:1; font-size:11px;"></output>
+            <button type="button" id="stopStreamBtn" class="small danger">Stop</button>
+            <button type="button" id="watchStreamBtn" class="primary small">👁 Watch</button>
           </div>
         </article>
       </div>

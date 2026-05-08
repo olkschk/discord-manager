@@ -195,7 +195,7 @@
           </label>
         </div>
         <div class="rowlist" style="margin-top:var(--sp-md);">
-          {% for a in accounts %}
+          {% for a in accounts if a.joined_server %}
           <label class="rowlist__row">
             <input type="checkbox" class="acc-check" data-section="react" value="{{ a.id }}" {% if not a.token_valid %}disabled{% endif %} />
             <span class="rowlist__primary">{{ a.email }}</span>
@@ -255,7 +255,6 @@
           {% for a in accounts %}
           <div class="rowlist__row" data-account="{{ a.id }}">
             <span class="rowlist__primary">{{ a.email }}</span>
-            <span class="rowlist__meta">{{ a.username }}</span>
             <span class="status {% if a.has_2fa %}ok{% else %}muted{% endif %} mfa-status">{{ "on" if a.has_2fa else "off" }}</span>
             <span class="mfa-code muted">—</span>
             {% if a.has_2fa %}
