@@ -63,6 +63,35 @@
       </article>
     </section>
 
+    <!-- Stream watcher -->
+    <section>
+      <div class="section__head">
+        <span class="section__title">Watch stream</span>
+        <span class="section__sub">Join Go Live as viewer</span>
+      </div>
+      <article class="panel" style="gap:var(--sp-md);">
+        <p class="panel__hint">Account joins the voice channel and watches the ongoing Go Live stream. Guild ID + Channel ID from the left panel are used.</p>
+        <label>
+          <span>Account (joined server)</span>
+          <select id="streamAccountSelect">
+            <option value="">Select account…</option>
+            {% for a in accounts %}
+            <option value="{{ a.id }}">{{ a.username }} ({{ a.email }})</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          <span>Streamer User ID <span style="color:var(--text-disabled);">(optional — speeds up connect)</span></span>
+          <input type="text" id="streamerUserId" placeholder="Discord User ID of the streamer" spellcheck="false" />
+        </label>
+        <div style="display:flex; gap:var(--sp-sm); align-items:center;">
+          <output id="streamResult" class="result" style="flex:1;"></output>
+          <button type="button" id="stopStreamBtn" class="small danger">Stop</button>
+          <button type="button" id="watchStreamBtn" class="primary">👁 Watch</button>
+        </div>
+      </article>
+    </section>
+
     <!-- Right: channel templates + audio player -->
     <section style="display:grid; gap:var(--sp-xl); align-content:start;">
 
@@ -201,6 +230,43 @@ document.getElementById("vcSaveForm").addEventListener("submit", async (e) => {
 });
 
 loadVcList();
+
+// ── Stream watcher ────────────────────────────────────────────────
+document.getElementById("watchStreamBtn").addEventListener("click", async () => {
+  const out = document.getElementById("streamResult");
+  const account_id = document.getElementById("streamAccountSelect").value;
+  const guild_id = document.getElementById("voiceGuildId").value.trim();
+  const channel_id = document.getElementById("voiceChannelId").value.trim();
+  const streamer_user_id = document.getElementById("streamerUserId").value.trim() || null;
+  if (!account_id) return setResult(out, false, "Select an account");
+  if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild ID and Channel ID");
+  setResult(out, true, "Connecting to stream…");
+  const r = await fetch("/api/voice/watch-stream", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_id, guild_id, channel_id, streamer_user_id }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (r.ok && data.ok) {
+    setResult(out, true, data.note || "👁 Watching stream");
+    setTimeout(() => location.reload(), 800);
+  } else {
+    setResult(out, false, data.error || data.detail || `Error ${r.status}`);
+  }
+});
+
+document.getElementById("stopStreamBtn").addEventListener("click", async () => {
+  const out = document.getElementById("streamResult");
+  const account_id = document.getElementById("streamAccountSelect").value;
+  if (!account_id) return;
+  await fetch("/api/voice/stop-stream", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_id }),
+  });
+  setResult(out, true, "Stopped");
+  setTimeout(() => location.reload(), 600);
+});
 
 // ── Audio player ──────────────────────────────────────────────────
 (async () => {
