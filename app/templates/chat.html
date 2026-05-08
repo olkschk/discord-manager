@@ -267,16 +267,34 @@ function setReply(id) {
 }
 document.getElementById("cancelReply").addEventListener("click", () => setReply(null));
 
+async function loadTopicMessages() {
+  if (!currentTopic) return;
+  const r = await fetch(`/api/chat/topic/${currentTopic}/messages`);
+  const data = await r.json();
+  const atBottom = messagesEl.scrollHeight - messagesEl.clientHeight <= messagesEl.scrollTop + 60;
+  renderMessages(data);
+  if (atBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+  document.getElementById("messageCount").textContent = `${data.length} stored`;
+}
+
+// Auto-refresh topic messages every 3–7 seconds (random delay)
+function scheduleTopicRefresh() {
+  const delay = 3000 + Math.random() * 4000;  // 3000–7000 ms
+  setTimeout(async () => {
+    await loadTopicMessages();
+    scheduleTopicRefresh();
+  }, delay);
+}
+scheduleTopicRefresh();
+
 document.getElementById("topicForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const tid = topicInput.value.trim();
   if (!tid) return;
   currentTopic = tid;
   document.getElementById("topicLabel").textContent = tid;
-  const r = await fetch(`/api/chat/topic/${tid}/messages`);
-  const data = await r.json();
-  renderMessages(data);
-  document.getElementById("messageCount").textContent = `${data.length} stored`;
+  await loadTopicMessages();
+  messagesEl.scrollTop = messagesEl.scrollHeight;
 });
 
 function renderMessages(items) {
