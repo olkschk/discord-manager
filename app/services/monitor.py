@@ -93,25 +93,57 @@ async def _topic_cycle() -> None:
                 logger.warning("topic %s fetch error: %s", tid, exc)
                 continue
 
-            await messages_coll().delete_many({"topic": tid})
-            docs: list[dict[str, Any]] = []
+            # Upsert each message (don't delete — Gateway listener may have saved newer ones)
             for m in msgs[:100]:
+                msg_id = m.get("id")
+                if not msg_id:
+                    continue
                 attachments = m.get("attachments") or []
                 image = attachments[0].get("url") if attachments else None
                 author = m.get("author") or {}
-                docs.append(
-                    {
-                        "text": m.get("content", ""),
-                        "image": image,
-                        "from": author.get("global_name") or author.get("username") or "?",
-                        "topic": tid,
-                        "timestamp": _parse_iso(m.get("timestamp")),
-                        "discord_message_id": m.get("id"),
-                    }
+                author_id = author.get("id", "")
+                avatar = author.get("avatar")
+                avatar_url = (
+                    f"https://cdn.discordapp.com/avatars/{author_id}/{avatar}.png?size=64"
+                    if avatar
+                    else f"https://cdn.discordapp.com/embed/avatars/{int(author_id or 0) % 5}.png"
                 )
-            if docs:
-                await messages_coll().insert_many(docs)
-                logger.info("topic monitor: refreshed %d msgs for topic=%s", len(docs), tid)
+                ref = m.get("referenced_message")
+                reply_to_author = reply_to_content = None
+                if ref:
+                    ra = ref.get("author") or {}
+                    reply_to_author = ra.get("global_name") or ra.get("username")
+                    reply_to_content = (ref.get("content") or "📎 Attachment" if ref.get("attachments") else ref.get("content") or "")[:100]
+
+                doc = {
+                    "discord_message_id": msg_id,
+                    "mid": int(msg_id),
+                    "text": m.get("content", ""),
+                    "image": image,
+                    "from": author.get("global_name") or author.get("username") or "?",
+                    "author_id": author_id,
+                    "avatar_url": avatar_url,
+                    "reply_to_author": reply_to_author,
+                    "reply_to_content": reply_to_content,
+                    "topic": tid,
+                    "timestamp": _parse_iso(m.get("timestamp")),
+                }
+                await messages_coll().update_one(
+                    {"discord_message_id": msg_id, "topic": tid},
+                    {"$set": doc},
+                    upsert=True,
+                )
+
+            # Trim to 100 newest by snowflake
+            count = await messages_coll().count_documents({"topic": tid})
+            if count > 100:
+                oldest = [d["_id"] async for d in messages_coll().find(
+                    {"topic": tid}, {"_id": 1}
+                ).sort("mid", 1).limit(count - 100)]
+                if oldest:
+                    await messages_coll().delete_many({"_id": {"$in": oldest}})
+
+            logger.info("topic monitor REST: synced msgs for topic=%s (total=%d)", tid, min(count, 100))
 
 
 async def _topic_loop() -> None:
