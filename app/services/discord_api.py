@@ -284,7 +284,10 @@ async def send_message(
         "mobile_network_type": "unknown",
     }
     if reply_to:
-        payload["message_reference"] = {"message_id": reply_to}
+        payload["message_reference"] = {
+            "message_id": reply_to,
+            "channel_id": str(channel_id),
+        }
     if captcha_key:
         payload["captcha_key"] = captcha_key
 

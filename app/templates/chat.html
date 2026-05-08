@@ -303,14 +303,19 @@ function renderMessages(items) {
     return;
   }
   messagesEl.innerHTML = items.map(m => {
-    const time = m.timestamp ? new Date(m.timestamp).toLocaleString() : "";
+    const time = m.timestamp ? new Date(m.timestamp).toLocaleString("ru-RU") : "";
     const img = m.image ? `<img class="msg__img" src="${escapeHtml(m.image)}" alt="" />` : "";
-    return `<article class="msg" data-id="${escapeHtml(m.id)}">
+    // reply preview
+    const replyBar = m.reply_to_author ? `<div style="border-left:2px solid var(--text-disabled);padding:2px 6px;margin-bottom:4px;font-size:11px;color:var(--text-disabled);font-family:var(--font-mono);">↩ ${escapeHtml(m.reply_to_author)}: ${escapeHtml((m.reply_to_content||"").slice(0,60))}</div>` : "";
+    // use discord_message_id (not MongoDB _id) for reply
+    const discordId = m.discord_message_id || "";
+    return `<article class="msg" data-id="${escapeHtml(discordId)}">
       <header class="msg__head">
         <span class="msg__from">${escapeHtml(m.from || "?")}</span>
         <span class="msg__time">${escapeHtml(time)}</span>
-        <button type="button" class="small msg__reply" data-id="${escapeHtml(m.id)}">Reply</button>
+        ${discordId ? `<button type="button" class="small msg__reply" data-id="${escapeHtml(discordId)}">Reply</button>` : ""}
       </header>
+      ${replyBar}
       <p class="msg__text">${escapeHtml(m.text || "")}</p>${img}
     </article>`;
   }).join("");
