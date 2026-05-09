@@ -391,10 +391,11 @@ document.getElementById("sendForm").addEventListener("submit", async (e) => {
       body: JSON.stringify({ account_id: accountId, channel_id: currentTopic, content: text, reply_to: replyTo }) });
   }
   const d = await resp.json().catch(()=>({}));
+  setReply(null);  // always clear reply chip after send attempt
   if (resp.ok && d.sent) {
     out.className="result ok"; out.textContent = file ? `Sent · ${d.files} file(s)` : "Sent";
-    document.getElementById("sendText").value=""; fileInput.value=""; fileLabel.textContent="Attach file"; setReply(null);
-  } else { out.className="result err"; out.textContent="Failed"; }
+    document.getElementById("sendText").value=""; fileInput.value=""; fileLabel.textContent="Attach file";
+  } else { out.className="result err"; out.textContent = d.error || "Failed"; }
 });
 
 // ── Templates ─────────────────────────────────────────────────────────────────
