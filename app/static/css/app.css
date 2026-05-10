@@ -514,6 +514,7 @@ table.accounts .row-actions button { padding: 3px 6px; font-size: 9px; letter-sp
   overflow-y: auto;
   display: grid;
   gap: var(--sp-md);
+  align-content: start;
 }
 .messages__empty {
   color: var(--text-disabled);
