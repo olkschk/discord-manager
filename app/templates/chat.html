@@ -476,13 +476,17 @@ document.getElementById("sendForm").addEventListener("submit", async (e) => {
   const file = fileInput.files[0] || null;
   const scheduleTime = document.getElementById("scheduleTime").value;
   const out = document.getElementById("sendResult");
-  if (!accountId || (!text && !file)) return;
+  const scheduleMode = scheduleTime && !document.getElementById("duplicateToggle").checked;
 
-  out.className = "result"; out.textContent = "Sending…";
+  // For scheduled messages text is required even without file
+  if (!accountId) { out.className = "result err"; out.textContent = "Select an account (click an icon above)"; return; }
+  if (!text && !file) { out.className = "result err"; out.textContent = "Write a message or attach a file"; return; }
+  if (!currentTopic) { out.className = "result err"; out.textContent = "Open a topic first"; return; }
+
+  out.className = "result"; out.textContent = scheduleMode ? "Scheduling…" : "Sending…";
 
   // Scheduled?
-  if (scheduleTime && !document.getElementById("duplicateToggle").checked) {
-    if (!currentTopic) { out.className = "result err"; out.textContent = "Open a topic first"; return; }
+  if (scheduleMode) {
     const r = await fetch("/api/chat/schedule", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ account_id: accountId, channel_id: currentTopic, content: text, reply_to: replyTo, scheduled_at: new Date(scheduleTime).toISOString() }),
@@ -509,8 +513,6 @@ document.getElementById("sendForm").addEventListener("submit", async (e) => {
     if (ok>0) { document.getElementById("sendText").value=""; setReply(null); }
     return;
   }
-
-  if (!currentTopic) { out.className="result err"; out.textContent="Open a topic first"; return; }
 
   let resp;
   if (file) {
