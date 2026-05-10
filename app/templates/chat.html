@@ -176,6 +176,87 @@
   </main>
 </div>
 
+<!-- Reaction modal — must be before <script> -->
+<div id="reactModal" class="modal" hidden>
+  <div class="modal__panel" style="max-width:540px;">
+    <header class="modal__head">
+      <h3 class="panel__title">Add reaction</h3>
+      <button type="button" class="link" id="reactModalClose">Close ×</button>
+    </header>
+    <div class="modal__body" style="gap:var(--sp-md);">
+      <!-- Emoji picker -->
+      <div>
+        <div class="label" style="margin-bottom:var(--sp-sm);">Emoji</div>
+        <div style="display:flex; gap:var(--sp-sm); flex-wrap:wrap;">
+          <button type="button" class="emoji-btn" data-emoji="✅">✅</button>
+          <button type="button" class="emoji-btn" data-emoji="❤️">❤️</button>
+          <button type="button" class="emoji-btn" data-emoji="🔥">🔥</button>
+          <button type="button" class="emoji-btn" data-emoji="👍">👍</button>
+          <button type="button" class="emoji-btn" data-emoji="😂">😂</button>
+          <button type="button" class="emoji-btn" data-emoji="🚀">🚀</button>
+          <button type="button" class="emoji-btn" data-emoji="💯">💯</button>
+          <button type="button" class="emoji-btn" data-emoji="👀">👀</button>
+          <button type="button" class="emoji-btn" data-emoji="🤝">🤝</button>
+          <button type="button" class="emoji-btn" data-emoji="⚡">⚡</button>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);margin-top:var(--sp-xs);">
+          Selected: <span id="reactModalEmoji" style="font-size:18px;">—</span>
+        </div>
+        <input type="hidden" id="reactModalEmojiVal" />
+      </div>
+
+      <!-- Group selector -->
+      <div>
+        <div class="label" style="margin-bottom:var(--sp-sm);">Group</div>
+        <div style="display:flex; gap:var(--sp-xs);">
+          {% for grp in ["All", "Masovka", "Chatter", "Influencer"] %}
+          <button type="button" class="react-group-btn{% if grp == 'Masovka' %} selected{% endif %}" data-group="{{ grp }}"
+            style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px;border-radius:4px;border:1px solid var(--border-visible);background:{% if grp == 'Masovka' %}var(--text-display){% else %}transparent{% endif %};color:{% if grp == 'Masovka' %}var(--black){% else %}var(--text-secondary){% endif %};cursor:pointer;">
+            {{ grp }}
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Account list -->
+      <div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--sp-sm);">
+          <div class="label">Accounts <span id="reactAccCount" style="color:var(--text-secondary);"></span></div>
+          <button type="button" class="small" id="reactSelectAll">Select all</button>
+        </div>
+        <div id="reactAccList" style="display:grid; gap:1px; background:var(--border); border:1px solid var(--border); border-radius:4px; max-height:200px; overflow-y:auto;">
+          {% for a in accounts %}
+          <label class="react-acc-row" data-group="{{ a.group }}" style="display:flex; gap:var(--sp-sm); align-items:center; padding:6px 10px; background:var(--surface); cursor:pointer;">
+            <input type="checkbox" class="react-acc-check" value="{{ a.id }}" style="width:14px;height:14px;accent-color:var(--text-display);" />
+            {% if a.avatar_url %}
+            <img src="{{ a.avatar_url }}" alt="" style="width:22px;height:22px;border-radius:50%;object-fit:cover;flex-shrink:0;" />
+            {% endif %}
+            <span style="font-family:var(--font-mono);font-size:12px;color:var(--text-display);">{{ a.username }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Delay -->
+      <div style="display:flex; gap:var(--sp-md);">
+        <label style="flex:1;">
+          <span>Delay min (s)</span>
+          <input type="number" id="reactDelayMin" value="1" min="0" max="60" step="0.5" />
+        </label>
+        <label style="flex:1;">
+          <span>Delay max (s)</span>
+          <input type="number" id="reactDelayMax" value="4" min="0" max="60" step="0.5" />
+        </label>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <output id="reactModalResult" class="result"></output>
+        <button type="button" id="reactModalSubmit" class="primary">React</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 document.querySelectorAll(".chat-subtab").forEach(btn => {
@@ -360,6 +441,7 @@ function renderMessages(items) {
           <span class="msg__from">${escapeHtml(m.from || "?")}</span>
           <span class="msg__time">${escapeHtml(time)}</span>
           ${discordId ? `<button type="button" class="small msg__reply" data-id="${escapeHtml(discordId)}" style="padding:1px 5px;font-size:9px;">Reply</button>` : ""}
+          ${discordId ? `<button type="button" class="small msg__react-btn" data-id="${escapeHtml(discordId)}" style="padding:1px 5px;font-size:9px;">React</button>` : ""}
         </header>
         ${replyBar}
         <p class="msg__text" style="margin:0;word-break:break-word;">${escapeHtml(m.text || "")}</p>${img}
@@ -697,5 +779,96 @@ setInterval(backgroundDMRefresh, 5000);
 
 updateDMBadge();
 setInterval(pollUnread, 30000);
+
+// ── Reaction modal ────────────────────────────────────────────────────────
+let reactTargetMessageId = null;
+
+// Open via event delegation — React button inside dynamically rendered messages
+document.getElementById("messages").addEventListener("click", (e) => {
+  const btn = e.target.closest(".msg__react-btn");
+  if (!btn) return;
+  reactTargetMessageId = btn.dataset.id;
+  // Reset state
+  document.getElementById("reactModalResult").textContent = "";
+  document.getElementById("reactModalResult").className = "result";
+  document.getElementById("reactModalEmojiVal").value = "";
+  document.getElementById("reactModalEmoji").textContent = "—";
+  document.querySelectorAll(".emoji-btn").forEach(b => b.classList.remove("selected"));
+  // Default group: Masovka
+  filterReactGroup("Masovka");
+  document.getElementById("reactModal").hidden = false;
+});
+
+document.getElementById("reactModalClose").addEventListener("click", () => {
+  document.getElementById("reactModal").hidden = true;
+});
+document.getElementById("reactModal").addEventListener("click", (e) => {
+  if (e.target === document.getElementById("reactModal"))
+    document.getElementById("reactModal").hidden = true;
+});
+
+// Emoji picker in reaction modal
+document.querySelectorAll("#reactModal .emoji-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#reactModal .emoji-btn").forEach(b => b.classList.remove("selected"));
+    btn.classList.add("selected");
+    document.getElementById("reactModalEmojiVal").value = btn.dataset.emoji;
+    document.getElementById("reactModalEmoji").textContent = btn.dataset.emoji;
+  });
+});
+
+// Group filter for reaction modal
+function filterReactGroup(group) {
+  document.querySelectorAll(".react-group-btn").forEach(b => {
+    const active = b.dataset.group === group;
+    b.style.background = active ? "var(--text-display)" : "transparent";
+    b.style.color = active ? "var(--black)" : "var(--text-secondary)";
+    b.style.borderColor = active ? "var(--text-display)" : "var(--border-visible)";
+  });
+  let visible = 0;
+  document.querySelectorAll(".react-acc-row").forEach(row => {
+    const show = group === "All" || row.dataset.group === group;
+    row.style.display = show ? "flex" : "none";
+    if (show) { visible++; row.querySelector(".react-acc-check").checked = true; }
+    else row.querySelector(".react-acc-check").checked = false;
+  });
+  document.getElementById("reactAccCount").textContent = `(${visible})`;
+}
+
+document.querySelectorAll(".react-group-btn").forEach(btn => {
+  btn.addEventListener("click", () => filterReactGroup(btn.dataset.group));
+});
+
+document.getElementById("reactSelectAll").addEventListener("click", () => {
+  document.querySelectorAll(".react-acc-row:not([style*='none']) .react-acc-check").forEach(c => c.checked = true);
+});
+
+// Submit reaction
+document.getElementById("reactModalSubmit").addEventListener("click", async () => {
+  const out = document.getElementById("reactModalResult");
+  const emoji = document.getElementById("reactModalEmojiVal").value;
+  const account_ids = [...document.querySelectorAll(".react-acc-check:checked")].map(c => c.value);
+  const delay_min = parseFloat(document.getElementById("reactDelayMin").value) || 1;
+  const delay_max = parseFloat(document.getElementById("reactDelayMax").value) || 4;
+  if (!emoji) return out.className = "result err", out.textContent = "Select emoji first";
+  if (!account_ids.length) return out.className = "result err", out.textContent = "Select at least one account";
+  if (!currentTopic) return out.className = "result err", out.textContent = "No topic open";
+  if (!reactTargetMessageId) return out.className = "result err", out.textContent = "No message selected";
+  out.className = "result"; out.textContent = `Reacting ${emoji} with ${account_ids.length}…`;
+  const r = await fetch("/api/chat/react-bulk", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      account_ids, channel_id: currentTopic,
+      message_id: reactTargetMessageId,
+      emoji, delay_min, delay_max,
+    }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) return out.className = "result err", out.textContent = `Error ${r.status}`;
+  const ok = (data.results || []).filter(x => x.ok).length;
+  out.className = ok > 0 ? "result ok" : "result err";
+  out.textContent = `${ok}/${(data.results || []).length} reacted ${emoji}`;
+});
 </script>
 {% endblock %}
