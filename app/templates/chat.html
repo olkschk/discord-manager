@@ -389,7 +389,10 @@ function setReply(id) {
   chip.hidden = !id;
   if (id) document.getElementById("replyId").textContent = id.slice(-6);
 }
-document.getElementById("cancelReply").addEventListener("click", () => setReply(null));
+// Use delegation so it works regardless of DOM changes
+document.addEventListener("click", (e) => {
+  if (e.target.id === "cancelReply" || e.target.closest("#cancelReply")) setReply(null);
+});
 
 async function loadTopicMessages() {
   if (!currentTopic) return;
