@@ -117,7 +117,7 @@
 
         <form id="sendForm" class="send" style="border-top:1px solid var(--border); border-radius:0; padding:var(--sp-md) var(--sp-lg); gap:var(--sp-sm);">
           <div class="send__row">
-            <span id="replyChip" class="reply-chip" hidden>
+            <span id="replyChip" class="reply-chip" style="display:none;">
               ↩ <code id="replyId"></code>
               <button type="button" id="cancelReply">×</button>
             </span>
@@ -386,7 +386,8 @@ let currentTopic = null, replyTo = null;
 function setReply(id) {
   replyTo = id;
   const chip = document.getElementById("replyChip");
-  chip.hidden = !id;
+  // Use style.display — CSS .reply-chip{display:inline-flex} overrides hidden attribute
+  chip.style.display = id ? "inline-flex" : "none";
   if (id) document.getElementById("replyId").textContent = id.slice(-6);
 }
 // Use delegation so it works regardless of DOM changes
