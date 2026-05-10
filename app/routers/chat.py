@@ -58,9 +58,15 @@ async def duplicate(body: DuplicateBody) -> dict:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
     results: list[dict] = []
-    for cid in body.channel_ids:
+    for i, cid in enumerate(body.channel_ids):
         msg = await send_message(token, cid, body.content, proxy_url=proxy_url)
-        results.append({"channel_id": cid, "ok": msg is not None})
+        ok = msg is not None
+        results.append({"channel_id": cid, "ok": ok})
+        if not ok:
+            logger.warning("duplicate: failed to send to channel %s — skipping", cid)
+        # Random delay between sends (skip after last channel)
+        if i < len(body.channel_ids) - 1:
+            await asyncio.sleep(random.uniform(3, 7))
     return {"results": results}
 
 
