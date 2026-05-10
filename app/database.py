@@ -89,7 +89,13 @@ def chat_channels() -> "AsyncIOMotorCollection":
 async def _ensure_indexes() -> None:
     await mails().create_index("email", unique=True)
     await discords().create_index("email", unique=True)
-    await proxies().create_index([("ip", 1), ("port", 1)], unique=True)
+    await discords().create_index([("owner", 1), ("email", 1)])
+    # proxies: unique per owner — different users may own same IP:port
+    try:
+        await proxies().drop_index("ip_1_port_1")
+    except Exception:  # noqa: BLE001 — index may not exist yet
+        pass
+    await proxies().create_index([("owner", 1), ("ip", 1), ("port", 1)], unique=True)
     await users().create_index("login", unique=True)
     await messages().create_index([("topic", 1), ("timestamp", -1)])
     await messages().create_index("discord_message_id", sparse=True)
@@ -97,5 +103,10 @@ async def _ensure_indexes() -> None:
     await private_messages().create_index(
         [("to", 1), ("discord_message_id", 1)], unique=True, sparse=True
     )
-    await topics().create_index("channel_id", unique=True)
+    # topics: unique per owner — different users may monitor the same channel
+    try:
+        await topics().drop_index("channel_id_1")
+    except Exception:  # noqa: BLE001
+        pass
+    await topics().create_index([("owner", 1), ("channel_id", 1)], unique=True)
     logger.debug("MongoDB indexes ensured")

@@ -19,7 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/add")
-async def add_proxies(payload: str = Form(...)) -> dict:
+async def add_proxies(
+    payload: str = Form(...),
+    user: str = Depends(require_login),
+) -> dict:
     """Multi-add. Accepts `ip:port:login:pass` or `login:pass@ip:port` per line."""
     added, skipped = 0, 0
     errors: list[str] = []
@@ -36,6 +39,7 @@ async def add_proxies(payload: str = Form(...)) -> dict:
         try:
             await proxies_coll().insert_one(
                 {
+                    "owner": user,
                     "ip": ip,
                     "port": port,
                     "login": login,

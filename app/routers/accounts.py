@@ -1,28 +1,26 @@
 """Discord account API: bulk-add, delete, assign proxies, validate."""
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from pymongo.errors import DuplicateKeyError
 
-import asyncio
-
 from app.database import discords, mails, private_messages as private_messages_coll, proxies as proxies_coll
 from app.models.account import parse_account_line
 from app.security import decrypt, encrypt, require_login
 from app.services.auth_recovery import (
+    extract_token_from_url,
     fetch_latest_link,
     find_and_authorize_ip,
-    follow_verify_link,
     forgot_password,
     full_verify_account,
     needs_email_verification,
     reset_password_with_token,
-    extract_token_from_url,
 )
-from app.services.discord_api import build_proxy_url, login_with_password, mfa_totp, validate_token, verify_resend
+from app.services.discord_api import build_proxy_url, login_with_password, validate_token
 from app.services.imap_client import fetch_latest_html, imap_host_for
 
 router = APIRouter(
@@ -34,7 +32,10 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/add")
-async def add_accounts(payload: str = Form(...)) -> dict:
+async def add_accounts(
+    payload: str = Form(...),
+    user: str = Depends(require_login),
+) -> dict:
     """Multi-add. Body field `payload` contains one `mail:pass:token` per line."""
     added, skipped = 0, 0
     errors: list[str] = []
@@ -52,6 +53,7 @@ async def add_accounts(payload: str = Form(...)) -> dict:
         enc_token = encrypt(token)
 
         doc = {
+            "owner": user,
             "email": email,
             "password": enc_pw,
             "discord_token": enc_token,
@@ -86,13 +88,14 @@ async def add_accounts(payload: str = Form(...)) -> dict:
 
 
 @router.post("/assign-proxies")
-async def assign_proxies() -> dict:
-    """For each account without a proxy, attach an unused one. Stops when proxies run out."""
+async def assign_proxies(user: str = Depends(require_login)) -> dict:
+    """For each of the owner's accounts without a proxy, attach an unused proxy
+    that also belongs to this owner. Stops when proxies run out."""
     assigned = 0
-    cursor = discords().find({"proxy_id": None})
+    cursor = discords().find({"owner": user, "proxy_id": None})
     async for acc in cursor:
         free = await proxies_coll().find_one_and_update(
-            {"assigned": False},
+            {"owner": user, "assigned": False},
             {"$set": {"assigned": True}},
         )
         if free is None:
@@ -103,15 +106,15 @@ async def assign_proxies() -> dict:
         )
         assigned += 1
 
-    logger.info("Assigned %d proxies", assigned)
+    logger.info("Assigned %d proxies for owner=%s", assigned, user)
     return {"assigned": assigned}
 
 
 @router.post("/validate-all")
-async def validate_all() -> dict:
-    """Validate every account that has a proxy. Updates `token_valid`."""
+async def validate_all(user: str = Depends(require_login)) -> dict:
+    """Validate every account owned by this user that has a proxy."""
     valid, invalid = 0, 0
-    cursor = discords().find({"proxy_id": {"$ne": None}})
+    cursor = discords().find({"owner": user, "proxy_id": {"$ne": None}})
     async for acc in cursor:
         proxy = await proxies_coll().find_one({"_id": acc["proxy_id"]})
         proxy_url: str | None = None
@@ -135,7 +138,7 @@ async def validate_all() -> dict:
         if is_valid and data:
             update["username"] = data.get("username")
             update["discord_user_id"] = data.get("id")
-            update["avatar"] = data.get("avatar")  # hash for CDN URL
+            update["avatar"] = data.get("avatar")
             if not acc.get("name"):
                 update["name"] = data.get("global_name") or data.get("username")
         await discords().update_one({"_id": acc["_id"]}, {"$set": update})
@@ -144,15 +147,18 @@ async def validate_all() -> dict:
         else:
             invalid += 1
 
-    logger.info("Validation done: valid=%d invalid=%d", valid, invalid)
+    logger.info("Validation done: valid=%d invalid=%d owner=%s", valid, invalid, user)
     return {"valid": valid, "invalid": invalid}
 
 
 @router.post("/{account_id}/validate")
-async def validate_one(account_id: str) -> dict:
+async def validate_one(
+    account_id: str,
+    user: str = Depends(require_login),
+) -> dict:
     if not ObjectId.is_valid(account_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
-    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    acc = await discords().find_one({"_id": ObjectId(account_id), "owner": user})
     if acc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
 
@@ -184,21 +190,31 @@ async def validate_one(account_id: str) -> dict:
 
 
 @router.patch("/{account_id}/group")
-async def set_group(account_id: str, body: dict) -> dict:
+async def set_group(
+    account_id: str,
+    body: dict,
+    user: str = Depends(require_login),
+) -> dict:
     group = body.get("group", "Masovka")
     if group not in ("Influencer", "Chatter", "Masovka"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid group")
     if not ObjectId.is_valid(account_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
-    await discords().update_one({"_id": ObjectId(account_id)}, {"$set": {"group": group}})
+    await discords().update_one(
+        {"_id": ObjectId(account_id), "owner": user},
+        {"$set": {"group": group}},
+    )
     return {"ok": True, "group": group}
 
 
 @router.delete("/{account_id}")
-async def delete_account(account_id: str) -> dict:
+async def delete_account(
+    account_id: str,
+    user: str = Depends(require_login),
+) -> dict:
     if not ObjectId.is_valid(account_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
-    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    acc = await discords().find_one({"_id": ObjectId(account_id), "owner": user})
     if acc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
 
@@ -207,36 +223,31 @@ async def delete_account(account_id: str) -> dict:
             {"_id": acc["proxy_id"]}, {"$set": {"assigned": False}}
         )
     email = acc.get("email", "")
-    # Delete all private messages for this account
     deleted_pms = await private_messages_coll().delete_many({"to": email})
     await discords().delete_one({"_id": ObjectId(account_id)})
     logger.info(
-        "Deleted account %s (email=%s, private_messages=%d)",
-        account_id, email, deleted_pms.deleted_count,
+        "Deleted account %s (email=%s, private_messages=%d, owner=%s)",
+        account_id, email, deleted_pms.deleted_count, user,
     )
     return {"deleted": True}
 
 
 @router.post("/{account_id}/login-by-mail")
-async def login_by_mail(account_id: str) -> dict:
-    """Re-login with stored email+password. If MFA is challenged and we hold the
-    2FA secret, complete the TOTP exchange. Captcha + email-verification flows
-    are *not* implemented — those return an error and require manual recovery.
-    """
-    import pyotp
-
+async def login_by_mail(
+    account_id: str,
+    user: str = Depends(require_login),
+) -> dict:
+    """Re-login with stored email+password."""
     if not ObjectId.is_valid(account_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
-    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    acc = await discords().find_one({"_id": ObjectId(account_id), "owner": user})
     if acc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
 
     try:
         password = decrypt(acc["password"])
     except ValueError:
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR, "Password ciphertext unreadable"
-        )
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Password ciphertext unreadable")
 
     proxy_url: str | None = None
     if acc.get("proxy_id"):
@@ -249,8 +260,6 @@ async def login_by_mail(account_id: str) -> dict:
             except ValueError:
                 proxy_url = None
 
-    # Decrypt 2FA secret if present — passed to login_with_password so MFA
-    # is completed inside the same curl_cffi session as the login.
     two_fa_secret: str | None = None
     if acc.get("two_fa_secret"):
         try:
@@ -272,12 +281,9 @@ async def login_by_mail(account_id: str) -> dict:
     token = out.get("token")
     recovery_steps: list[str] = []
 
-    # New-device email verification — fetch the link Discord mailed and POST /auth/authorize-ip.
     if not token and needs_email_verification(out):
         recovery_steps.append("verify_email_required")
-        # Wait for the email to arrive (Discord sends it within a few seconds).
         await asyncio.sleep(7)
-        # Try all recent Discord links until we find the authorize-ip one.
         if not await find_and_authorize_ip(acc["email"], password, proxy_url=proxy_url):
             return {"ok": False, "error": "verify_link_failed", "steps": recovery_steps}
         recovery_steps.append("verify_link_followed")
@@ -287,11 +293,8 @@ async def login_by_mail(account_id: str) -> dict:
         out = retry
         token = out.get("token")
 
-    # MFA is now handled inside login_with_password (same curl_cffi session).
-    # If we still see mfa=True here, it means no 2FA secret was available.
     if not token and out.get("mfa"):
         return {"ok": False, "error": "mfa_required_but_no_secret", "steps": recovery_steps}
-
     if not token:
         if out.get("captcha_key"):
             return {"ok": False, "error": "captcha_required", "steps": recovery_steps}
@@ -301,34 +304,31 @@ async def login_by_mail(account_id: str) -> dict:
         {"_id": ObjectId(account_id)},
         {"$set": {"discord_token": encrypt(token), "token_valid": True}},
     )
-    logger.info("Re-logged in %s via /auth/login (steps=%s)", acc.get("email"), recovery_steps)
+    logger.info("Re-logged in %s (steps=%s, owner=%s)", acc.get("email"), recovery_steps, user)
     return {"ok": True, "steps": recovery_steps}
 
 
 @router.post("/{account_id}/reset-password")
-async def reset_password_endpoint(account_id: str, body: dict) -> dict:
-    """Trigger Discord password reset via email link.
-
-    Body: {"new_password": str}.
-    Flow: POST /auth/forgot → wait → IMAP fetch reset link → extract token →
-    POST /auth/reset → re-encrypt new password into mails + discords.
-    """
+async def reset_password_endpoint(
+    account_id: str,
+    body: dict,
+    user: str = Depends(require_login),
+) -> dict:
+    """Trigger Discord password reset via email link."""
     new_password = (body or {}).get("new_password", "")
     if not new_password or len(new_password) < 8:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "new_password must be at least 8 chars")
     if not ObjectId.is_valid(account_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
 
-    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    acc = await discords().find_one({"_id": ObjectId(account_id), "owner": user})
     if acc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
 
     try:
         old_password = decrypt(acc["password"])
     except ValueError:
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR, "Mail password ciphertext unreadable"
-        )
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Mail password ciphertext unreadable")
 
     proxy_url: str | None = None
     if acc.get("proxy_id"):
@@ -344,8 +344,6 @@ async def reset_password_endpoint(account_id: str, body: dict) -> dict:
     if not await forgot_password(acc["email"], proxy_url=proxy_url):
         return {"ok": False, "error": "forgot_request_failed"}
 
-    # Discord typically delivers the reset email within seconds. Poll IMAP
-    # a few times to keep the operator from racing the email.
     link: str | None = None
     for _ in range(6):
         await asyncio.sleep(7)
@@ -364,12 +362,8 @@ async def reset_password_endpoint(account_id: str, body: dict) -> dict:
         return {"ok": False, "error": "reset_request_failed"}
 
     enc_new = encrypt(new_password)
-    await discords().update_one(
-        {"_id": ObjectId(account_id)}, {"$set": {"password": enc_new}}
-    )
-    await mails().update_one(
-        {"email": acc["email"]}, {"$set": {"password": enc_new}}
-    )
+    await discords().update_one({"_id": ObjectId(account_id)}, {"$set": {"password": enc_new}})
+    await mails().update_one({"email": acc["email"]}, {"$set": {"password": enc_new}})
 
     new_token = out.get("token") if isinstance(out, dict) else None
     if new_token:
@@ -378,20 +372,19 @@ async def reset_password_endpoint(account_id: str, body: dict) -> dict:
             {"$set": {"discord_token": encrypt(new_token), "token_valid": True}},
         )
 
-    logger.info("Reset password for %s", acc.get("email"))
+    logger.info("Reset password for %s (owner=%s)", acc.get("email"), user)
     return {"ok": True, "rotated_token": bool(new_token)}
 
 
 @router.post("/{account_id}/verify-email")
-async def verify_email_endpoint(account_id: str) -> dict:
-    """Handle the 'Verification Required' Discord screen.
-
-    Flow: POST /auth/verify/resend → wait → IMAP fetch verify link →
-    follow link → POST /auth/verify (+ captcha if needed) → update token.
-    """
+async def verify_email_endpoint(
+    account_id: str,
+    user: str = Depends(require_login),
+) -> dict:
+    """Handle the 'Verification Required' Discord screen."""
     if not ObjectId.is_valid(account_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
-    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    acc = await discords().find_one({"_id": ObjectId(account_id), "owner": user})
     if acc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
 
@@ -412,7 +405,6 @@ async def verify_email_endpoint(account_id: str) -> dict:
             except ValueError:
                 proxy_url = None
 
-    # full_verify_account: resend → wait → IMAP fetch → POST /auth/verify → new token
     new_token = await full_verify_account(token, acc["email"], password, proxy_url=proxy_url)
     if not new_token:
         return {"ok": False, "error": "verify_failed — check IMAP or try Inbox to see the email"}
@@ -422,7 +414,7 @@ async def verify_email_endpoint(account_id: str) -> dict:
             {"_id": ObjectId(account_id)},
             {"$set": {"discord_token": encrypt(new_token), "token_valid": True}},
         )
-    logger.info("Email verified for %s", acc.get("email"))
+    logger.info("Email verified for %s (owner=%s)", acc.get("email"), user)
     return {"ok": True}
 
 
@@ -430,11 +422,12 @@ async def verify_email_endpoint(account_id: str) -> dict:
 async def get_latest_email_html(
     account_id: str,
     only_discord: bool = False,
+    user: str = Depends(require_login),
 ) -> dict:
     """Fetch the newest email from the account's mailbox and return full HTML."""
     if not ObjectId.is_valid(account_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
-    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    acc = await discords().find_one({"_id": ObjectId(account_id), "owner": user})
     if acc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
 

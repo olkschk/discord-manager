@@ -34,8 +34,8 @@ class SendBody(BaseModel):
 
 
 @router.post("/send")
-async def send(body: SendBody) -> dict:
-    resolved = await load_account_token_and_proxy(body.account_id)
+async def send(body: SendBody, user: str = Depends(require_login)) -> dict:
+    resolved = await load_account_token_and_proxy(body.account_id, owner=user)
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
@@ -52,8 +52,8 @@ class DuplicateBody(BaseModel):
 
 
 @router.post("/duplicate")
-async def duplicate(body: DuplicateBody) -> dict:
-    resolved = await load_account_token_and_proxy(body.account_id)
+async def duplicate(body: DuplicateBody, user: str = Depends(require_login)) -> dict:
+    resolved = await load_account_token_and_proxy(body.account_id, owner=user)
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
@@ -79,8 +79,8 @@ class ReactBody(BaseModel):
 
 
 @router.post("/react")
-async def react(body: ReactBody) -> dict:
-    resolved = await load_account_token_and_proxy(body.account_id)
+async def react(body: ReactBody, user: str = Depends(require_login)) -> dict:
+    resolved = await load_account_token_and_proxy(body.account_id, owner=user)
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
@@ -99,13 +99,13 @@ class BulkReactBody(BaseModel):
 
 
 @router.post("/react-bulk")
-async def react_bulk(body: BulkReactBody) -> dict:
+async def react_bulk(body: BulkReactBody, user: str = Depends(require_login)) -> dict:
     """Add the same reaction from N accounts with optional random delay."""
     results: list[dict] = []
     for i, acc_id in enumerate(body.account_ids):
         if i > 0 and body.delay_max > 0:
             await asyncio.sleep(random.uniform(body.delay_min, body.delay_max))
-        resolved = await load_account_token_and_proxy(acc_id)
+        resolved = await load_account_token_and_proxy(acc_id, owner=user)
         if resolved is None:
             results.append({"account_id": acc_id, "ok": False, "error": "unreadable"})
             continue
@@ -123,10 +123,11 @@ async def send_with_file(
     content: str = Form(""),
     reply_to: str | None = Form(None),
     files: list[UploadFile] = File(default_factory=list),
+    user: str = Depends(require_login),
 ) -> dict:
     if not files and not content.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Either content or a file is required")
-    resolved = await load_account_token_and_proxy(account_id)
+    resolved = await load_account_token_and_proxy(account_id, owner=user)
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
@@ -162,7 +163,10 @@ class ScheduleBody(BaseModel):
 
 
 @router.post("/schedule")
-async def schedule_message(body: ScheduleBody) -> dict:
+async def schedule_message(
+    body: ScheduleBody,
+    user: str = Depends(require_login),
+) -> dict:
     """Save a message to be sent at `scheduled_at` (ISO UTC datetime)."""
     try:
         ts = datetime.fromisoformat(body.scheduled_at.replace("Z", "+00:00"))
@@ -171,6 +175,7 @@ async def schedule_message(body: ScheduleBody) -> dict:
     if ts <= datetime.now(timezone.utc):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "scheduled_at must be in the future")
     res = await scheduled_messages().insert_one({
+        "owner": user,
         "account_id": body.account_id,
         "channel_id": body.channel_id,
         "content": body.content,
@@ -183,9 +188,9 @@ async def schedule_message(body: ScheduleBody) -> dict:
 
 
 @router.get("/scheduled")
-async def list_scheduled() -> list[dict]:
+async def list_scheduled(user: str = Depends(require_login)) -> list[dict]:
     out: list[dict] = []
-    async for m in scheduled_messages().find({"status": "pending"}).sort("scheduled_at", 1):
+    async for m in scheduled_messages().find({"owner": user, "status": "pending"}).sort("scheduled_at", 1):
         out.append({
             "id": str(m["_id"]),
             "account_id": m.get("account_id"),
@@ -197,11 +202,14 @@ async def list_scheduled() -> list[dict]:
 
 
 @router.delete("/scheduled/{msg_id}")
-async def cancel_scheduled(msg_id: str) -> dict:
+async def cancel_scheduled(
+    msg_id: str,
+    user: str = Depends(require_login),
+) -> dict:
     if not ObjectId.is_valid(msg_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid id")
     res = await scheduled_messages().update_one(
-        {"_id": ObjectId(msg_id), "status": "pending"},
+        {"_id": ObjectId(msg_id), "owner": user, "status": "pending"},
         {"$set": {"status": "cancelled"}},
     )
     if res.matched_count == 0:
@@ -216,24 +224,34 @@ class ChatChannelBody(BaseModel):
 
 
 @router.get("/channels")
-async def list_chat_channels() -> list[dict]:
+async def list_chat_channels(user: str = Depends(require_login)) -> list[dict]:
     out: list[dict] = []
-    async for ch in chat_channels().find().sort("label", 1):
+    async for ch in chat_channels().find({"owner": user}).sort("label", 1):
         out.append({"id": str(ch["_id"]), "channel_id": ch["channel_id"], "label": ch.get("label", "")})
     return out
 
 
 @router.post("/channels")
-async def save_chat_channel(body: ChatChannelBody) -> dict:
-    res = await chat_channels().insert_one({"channel_id": body.channel_id.strip(), "label": body.label})
+async def save_chat_channel(
+    body: ChatChannelBody,
+    user: str = Depends(require_login),
+) -> dict:
+    res = await chat_channels().insert_one({
+        "owner": user,
+        "channel_id": body.channel_id.strip(),
+        "label": body.label,
+    })
     return {"id": str(res.inserted_id), "channel_id": body.channel_id, "label": body.label}
 
 
 @router.delete("/channels/{ch_id}")
-async def delete_chat_channel(ch_id: str) -> dict:
+async def delete_chat_channel(
+    ch_id: str,
+    user: str = Depends(require_login),
+) -> dict:
     if not ObjectId.is_valid(ch_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid id")
-    await chat_channels().delete_one({"_id": ObjectId(ch_id)})
+    await chat_channels().delete_one({"_id": ObjectId(ch_id), "owner": user})
     return {"deleted": True}
 
 

@@ -10,11 +10,15 @@ from app.services.discord_api import build_proxy_url
 
 async def load_account_token_and_proxy(
     account_id: str | ObjectId,
+    owner: str | None = None,
 ) -> tuple[dict, str, str | None] | None:
     """Resolve an account by id, decrypt its token, build its proxy URL.
 
+    If `owner` is provided the document must also match that owner field —
+    prevents one panel user from acting on another user's accounts.
+
     Returns `(account_doc, token, proxy_url_or_none)` or `None` on:
-      - invalid id / not found
+      - invalid id / not found / wrong owner
       - token ciphertext unreadable
 
     Bad proxy ciphertext is non-fatal — the account is returned with proxy_url=None.
@@ -24,7 +28,11 @@ async def load_account_token_and_proxy(
             return None
         account_id = ObjectId(account_id)
 
-    acc = await discords().find_one({"_id": account_id})
+    query: dict = {"_id": account_id}
+    if owner is not None:
+        query["owner"] = owner
+
+    acc = await discords().find_one(query)
     if acc is None:
         return None
 

@@ -22,31 +22,35 @@ class TopicBody(BaseModel):
 
 
 @router.get("/topics")
-async def list_topics() -> list[dict]:
+async def list_topics(user: str = Depends(require_login)) -> list[dict]:
     out: list[dict] = []
-    async for t in topics().find().sort("_id", -1):
+    async for t in topics().find({"owner": user}).sort("_id", -1):
         out.append({"id": str(t["_id"]), "channel_id": t["channel_id"], "label": t.get("label")})
     return out
 
 
 @router.post("/topics")
-async def add_topic(body: TopicBody) -> dict:
+async def add_topic(
+    body: TopicBody,
+    user: str = Depends(require_login),
+) -> dict:
     channel_id = body.channel_id.strip()
     label = body.label
     try:
-        res = await topics().insert_one({"channel_id": channel_id, "label": label})
+        res = await topics().insert_one({"owner": user, "channel_id": channel_id, "label": label})
     except DuplicateKeyError:
         raise HTTPException(status.HTTP_409_CONFLICT, "Topic already registered")
-    # Build return dict explicitly — insert_one adds ObjectId _id to the dict
-    # in-place, which Pydantic can't serialize
     return {"id": str(res.inserted_id), "channel_id": channel_id, "label": label}
 
 
 @router.delete("/topics/{topic_id}")
-async def delete_topic(topic_id: str) -> dict:
+async def delete_topic(
+    topic_id: str,
+    user: str = Depends(require_login),
+) -> dict:
     if not ObjectId.is_valid(topic_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid topic id")
-    res = await topics().delete_one({"_id": ObjectId(topic_id)})
+    res = await topics().delete_one({"_id": ObjectId(topic_id), "owner": user})
     if res.deleted_count == 0:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     return {"deleted": True}
@@ -57,15 +61,19 @@ class DonorBody(BaseModel):
 
 
 @router.post("/donor")
-async def set_donor(body: DonorBody) -> dict:
-    """Atomically set exactly one donor account. Pass null to clear."""
-    await discords().update_many({"is_donor": True}, {"$set": {"is_donor": False}})
+async def set_donor(
+    body: DonorBody,
+    user: str = Depends(require_login),
+) -> dict:
+    """Atomically set exactly one donor account per owner. Pass null to clear."""
+    # Clear only this owner's current donor
+    await discords().update_many({"owner": user, "is_donor": True}, {"$set": {"is_donor": False}})
     if body.account_id is None:
         return {"donor": None}
     if not ObjectId.is_valid(body.account_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
     res = await discords().update_one(
-        {"_id": ObjectId(body.account_id)},
+        {"_id": ObjectId(body.account_id), "owner": user},
         {"$set": {"is_donor": True}},
     )
     if res.matched_count == 0:
@@ -74,8 +82,8 @@ async def set_donor(body: DonorBody) -> dict:
 
 
 @router.get("/donor")
-async def get_donor() -> dict:
-    donor = await discords().find_one({"is_donor": True})
+async def get_donor(user: str = Depends(require_login)) -> dict:
+    donor = await discords().find_one({"owner": user, "is_donor": True})
     if donor is None:
         return {"donor": None}
     return {

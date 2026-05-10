@@ -36,31 +36,31 @@ class IdentityBody(BaseModel):
 
 
 @router.post("/identity")
-async def change_identity(body: IdentityBody) -> dict:
+async def change_identity(
+    body: IdentityBody,
+    user: str = Depends(require_login),
+) -> dict:
     """Generate a fresh AI identity for each account and PATCH it to Discord."""
     results: list[dict] = []
     for acc_id in body.account_ids:
-        resolved = await load_account_token_and_proxy(acc_id)
+        resolved = await load_account_token_and_proxy(acc_id, owner=user)
         if resolved is None:
             results.append({"account_id": acc_id, "ok": False, "error": "unreadable"})
             continue
         acc, token, proxy_url = resolved
 
-        # Password is required by Discord when changing username
         try:
             password = decrypt(acc["password"])
         except (ValueError, KeyError):
             password = None
 
-        # Discord requires an active gateway session for profile edits (10020 Unknown Session).
-        # Connect (or reuse existing connection) before making the PATCH request.
         conn = await gateway_pool.get_or_create(acc_id)
         if conn is None:
             logger.warning("change_identity: could not open gateway for %s — trying anyway", acc_id)
 
         try:
             ident = await generate_identity()
-        except Exception as exc:  # noqa: BLE001 — surface AI failures per-account
+        except Exception as exc:  # noqa: BLE001
             logger.exception("Identity gen failed for %s", acc_id)
             results.append(
                 {"account_id": acc_id, "ok": False, "error": f"ai:{exc.__class__.__name__}"}
@@ -83,13 +83,11 @@ async def change_identity(body: IdentityBody) -> dict:
 
         await discords().update_one(
             {"_id": ObjectId(acc_id)},
-            {
-                "$set": {
-                    "username": ident["username"],
-                    "name": ident["global_name"],
-                    "bio": ident["bio"],
-                }
-            },
+            {"$set": {
+                "username": ident["username"],
+                "name": ident["global_name"],
+                "bio": ident["bio"],
+            }},
         )
         results.append({"account_id": acc_id, "ok": True, "identity": ident})
 
@@ -103,9 +101,12 @@ class CheckUsernameBody(BaseModel):
 
 
 @router.post("/identity/check-username")
-async def check_username_endpoint(body: CheckUsernameBody) -> dict:
+async def check_username_endpoint(
+    body: CheckUsernameBody,
+    user: str = Depends(require_login),
+) -> dict:
     """POST /users/@me/pomelo-attempt — returns {taken: bool}."""
-    resolved = await load_account_token_and_proxy(body.account_id)
+    resolved = await load_account_token_and_proxy(body.account_id, owner=user)
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
@@ -118,16 +119,19 @@ class CustomIdentityBody(BaseModel):
     username: str | None = Field(None, min_length=2, max_length=32)
     global_name: str | None = Field(None, max_length=32)
     bio: str | None = Field(None, max_length=190)
-    avatar_base64: str | None = None  # "data:image/png;base64,..." from file upload
+    avatar_base64: str | None = None
 
 
 @router.post("/identity/custom")
-async def set_custom_identity(body: CustomIdentityBody) -> dict:
+async def set_custom_identity(
+    body: CustomIdentityBody,
+    user: str = Depends(require_login),
+) -> dict:
     """Apply manually-entered identity fields to a single account."""
     if not body.username and body.global_name is None and body.bio is None and body.avatar_base64 is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "At least one field required")
 
-    resolved = await load_account_token_and_proxy(body.account_id)
+    resolved = await load_account_token_and_proxy(body.account_id, owner=user)
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     acc, token, proxy_url = resolved
@@ -137,7 +141,6 @@ async def set_custom_identity(body: CustomIdentityBody) -> dict:
     except (ValueError, KeyError):
         password = None
 
-    # Ensure a gateway session exists before patching (Discord requires it).
     conn = await gateway_pool.get_or_create(body.account_id)
     if conn is None:
         logger.warning("set_custom_identity: no gateway for %s — trying anyway", body.account_id)
@@ -161,7 +164,6 @@ async def set_custom_identity(body: CustomIdentityBody) -> dict:
         update["name"] = body.global_name
     if body.bio is not None:
         update["bio"] = body.bio
-    # Save avatar hash if Discord returned it
     if isinstance(out, dict) and out.get("avatar"):
         update["avatar"] = out["avatar"]
     if update:
@@ -173,30 +175,32 @@ async def set_custom_identity(body: CustomIdentityBody) -> dict:
 # ── Join server ──────────────────────────────────────────────────────────────
 class JoinServerBody(BaseModel):
     account_ids: list[str] = Field(..., min_length=1)
-    invite: str  # bare invite code or full discord.gg/<code> URL
+    invite: str
 
 
 @router.post("/join-server")
-async def join_server(body: JoinServerBody) -> dict:
+async def join_server(
+    body: JoinServerBody,
+    user: str = Depends(require_login),
+) -> dict:
     code = body.invite.strip().rstrip("/").rsplit("/", 1)[-1]
     if not code:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Empty invite code")
 
     results: list[dict] = []
     for acc_id in body.account_ids:
-        resolved = await load_account_token_and_proxy(acc_id)
+        resolved = await load_account_token_and_proxy(acc_id, owner=user)
         if resolved is None:
             results.append({"account_id": acc_id, "ok": False, "error": "unreadable"})
             continue
         acc, token, proxy_url = resolved
-        logger.info("join_server acc=%s has_proxy=%s proxy_url_prefix=%s", acc_id, bool(proxy_url), (proxy_url or "")[:30])
+        logger.info("join_server acc=%s has_proxy=%s", acc_id, bool(proxy_url))
 
         async def _try_join(tok: str) -> dict | None:
             c = await gateway_pool.get_or_create(acc_id)
             return await join_invite(tok, code, session_id=c.session_id if c else None, proxy_url=proxy_url)
 
         async def _run_verify_and_retry(tok: str, reason: str) -> tuple[str, dict | None]:
-            """Shared verification flow: verify email → update token → retry join."""
             logger.info("join_server: %s for %s — running email verification", reason, acc_id)
             try:
                 mail_password = decrypt(acc["password"])
@@ -214,17 +218,13 @@ async def join_server(body: JoinServerBody) -> dict:
 
         out = await _try_join(token)
 
-        # 40002 detected by join_invite (preflight or POST)
         if isinstance(out, dict) and out.get("_needs_verification"):
             token, out = await _run_verify_and_retry(token, "40002 _needs_verification")
-
-        # join failed AND eligibility check confirms verification required
         elif not (bool(out) and not isinstance(out, dict)):
             needs_verify = await check_needs_verification(token, proxy_url=proxy_url)
             if needs_verify:
                 token, out = await _run_verify_and_retry(token, "post-failure eligibility check")
 
-        # verify_resend fallback: if join still fails, try resend+follow as last resort
         if out is None:
             resend_needed = await check_needs_verification(token, proxy_url=proxy_url)
             if resend_needed:
@@ -243,12 +243,15 @@ class MarkJoinedBody(BaseModel):
 
 
 @router.post("/mark-joined")
-async def mark_joined(body: MarkJoinedBody) -> dict:
+async def mark_joined(
+    body: MarkJoinedBody,
+    user: str = Depends(require_login),
+) -> dict:
     """Manually set joined_server=True without actually joining Discord."""
     if not ObjectId.is_valid(body.account_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
     res = await discords().update_one(
-        {"_id": ObjectId(body.account_id)},
+        {"_id": ObjectId(body.account_id), "owner": user},
         {"$set": {"joined_server": True}},
     )
     if res.matched_count == 0:
@@ -262,9 +265,12 @@ class TwoFASetupBody(BaseModel):
 
 
 @router.post("/2fa/setup")
-async def setup_two_fa(body: TwoFASetupBody) -> dict:
+async def setup_two_fa(
+    body: TwoFASetupBody,
+    user: str = Depends(require_login),
+) -> dict:
     """Generate a TOTP secret, enable MFA on Discord, persist secret + backup codes."""
-    resolved = await load_account_token_and_proxy(body.account_id)
+    resolved = await load_account_token_and_proxy(body.account_id, owner=user)
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     acc, token, proxy_url = resolved
@@ -305,7 +311,7 @@ async def setup_two_fa(body: TwoFASetupBody) -> dict:
 
 
 # ── Activity (gateway PRESENCE_UPDATE) ──────────────────────────────────────
-from app.services.activity_templates import (
+from app.services.activity_templates import (  # noqa: E402
     GAME_NAMES, GAMES, SPOTIFY_TRACKS,
     build_game_activity, build_random_activity, build_spotify_activity,
 )
@@ -313,13 +319,12 @@ from app.services.activity_templates import (
 
 class ActivityBody(BaseModel):
     account_ids: list[str] = Field(..., min_length=1)
-    mode: str = Field("random")      # random | spotify | game
-    game_name: str | None = None     # specific game name (or random if None)
+    mode: str = Field("random")
+    game_name: str | None = None
 
 
 @router.get("/activity/templates")
 async def get_activity_templates() -> dict:
-    """Return available games and a sample Spotify track for the UI."""
     return {
         "games": GAME_NAMES,
         "spotify_sample": f"{SPOTIFY_TRACKS[0]['title']} — {SPOTIFY_TRACKS[0]['artist']}",
@@ -328,7 +333,7 @@ async def get_activity_templates() -> dict:
 
 @router.post("/activity")
 async def set_activity(body: ActivityBody) -> dict:
-    """Set Spotify or game activity (with proper icons) on N accounts."""
+    """Set Spotify or game activity on N accounts."""
     results: list[dict] = []
     for acc_id in body.account_ids:
         if body.mode == "spotify":
@@ -357,10 +362,13 @@ async def clear_activity(body: ClearActivityBody) -> dict:
 
 
 @router.get("/2fa/{account_id}/code")
-async def get_two_fa_code(account_id: str) -> dict:
+async def get_two_fa_code(
+    account_id: str,
+    user: str = Depends(require_login),
+) -> dict:
     if not ObjectId.is_valid(account_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
-    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    acc = await discords().find_one({"_id": ObjectId(account_id), "owner": user})
     if acc is None or not acc.get("two_fa_secret"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "2FA not set up for this account")
     try:

@@ -18,7 +18,7 @@ async def dashboard(
     user: str = Depends(require_login),
 ) -> HTMLResponse:
     accounts: list[dict] = []
-    async for acc in discords().find().sort("_id", -1):
+    async for acc in discords().find({"owner": user}).sort("_id", -1):
         accounts.append(
             {
                 "id": str(acc["_id"]),
@@ -36,9 +36,9 @@ async def dashboard(
             }
         )
 
-    total_accounts = await discords().count_documents({})
-    total_proxies = await proxies_coll().count_documents({})
-    assigned_proxies = await proxies_coll().count_documents({"assigned": True})
+    total_accounts = await discords().count_documents({"owner": user})
+    total_proxies = await proxies_coll().count_documents({"owner": user})
+    assigned_proxies = await proxies_coll().count_documents({"owner": user, "assigned": True})
     free_proxies = total_proxies - assigned_proxies
 
     return templates.TemplateResponse(
@@ -64,7 +64,7 @@ async def voice_page(
     user: str = Depends(require_login),
 ) -> HTMLResponse:
     accounts: list[dict] = []
-    async for acc in discords().find({"token_valid": True, "joined_server": True}).sort("_id", -1):
+    async for acc in discords().find({"owner": user, "token_valid": True, "joined_server": True}).sort("_id", -1):
         accounts.append(
             {
                 "id": str(acc["_id"]),
@@ -88,7 +88,7 @@ async def chat_page(
 ) -> HTMLResponse:
     # Accounts for topic chat: joined_server + token_valid
     accounts: list[dict] = []
-    async for acc in discords().find({"token_valid": True, "joined_server": True}).sort("_id", -1):
+    async for acc in discords().find({"owner": user, "token_valid": True, "joined_server": True}).sort("_id", -1):
         uid = acc.get("discord_user_id", "")
         avatar = acc.get("avatar")
         avatar_url = (
@@ -106,7 +106,7 @@ async def chat_page(
         )
     # All token-valid accounts for DM reply map (DMs can arrive on any account)
     all_accounts: list[dict] = []
-    async for acc in discords().find({"token_valid": True}).sort("_id", -1):
+    async for acc in discords().find({"owner": user, "token_valid": True}).sort("_id", -1):
         all_accounts.append(
             {
                 "id": str(acc["_id"]),
@@ -127,7 +127,7 @@ async def utils_page(
     user: str = Depends(require_login),
 ) -> HTMLResponse:
     accounts: list[dict] = []
-    async for acc in discords().find().sort("_id", -1):
+    async for acc in discords().find({"owner": user}).sort("_id", -1):
         accounts.append(
             {
                 "id": str(acc["_id"]),
@@ -143,7 +143,7 @@ async def utils_page(
         )
 
     monitored_topics: list[dict] = []
-    async for t in topics().find().sort("_id", -1):
+    async for t in topics().find({"owner": user}).sort("_id", -1):
         monitored_topics.append(
             {"id": str(t["_id"]), "channel_id": t["channel_id"], "label": t.get("label")}
         )

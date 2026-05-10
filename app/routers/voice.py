@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from bson import ObjectId
-from pymongo.errors import DuplicateKeyError
 
 from app.config import get_settings
 from app.database import discords, voice_channels
@@ -36,8 +35,7 @@ class VoiceJoinBody(BaseModel):
 
 @router.post("/join")
 async def join_channel(body: VoiceJoinBody) -> dict:
-    """Connect each account to the given voice channel, with a randomised
-    delay between accounts so the channel doesn't fill in one tick."""
+    """Connect each account to the given voice channel, with a randomised delay."""
     if body.delay_max < body.delay_min:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "delay_max < delay_min")
 
@@ -86,17 +84,18 @@ class PlaySoundBody(BaseModel):
 
 
 @router.post("/play")
-async def play_sound_endpoint(body: PlaySoundBody) -> dict:
+async def play_sound_endpoint(
+    body: PlaySoundBody,
+    user: str = Depends(require_login),
+) -> dict:
     """Connect account to voice channel and play a sound file."""
     import os
     settings = get_settings()
 
-    # Validate sound file (prevent path traversal)
     safe_name = os.path.basename(body.sound_file)
     sound_path = os.path.join(settings.sounds_dir, safe_name)
 
-    # Load account token + proxy
-    acc = await discords().find_one({"_id": ObjectId(body.account_id)})
+    acc = await discords().find_one({"_id": ObjectId(body.account_id), "owner": user})
     if acc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
     try:
@@ -117,7 +116,6 @@ async def play_sound_endpoint(body: PlaySoundBody) -> dict:
             except ValueError:
                 proxy_url = None
 
-    # Close existing gateway_pool connection — discord.py-self will take over
     await gateway_pool.close_one(body.account_id)
 
     return await play_sound(
@@ -140,13 +138,16 @@ class WatchStreamBody(BaseModel):
     account_id: str
     guild_id: str
     channel_id: str
-    streamer_user_id: str | None = None  # Discord user ID of streamer (speeds up connect)
+    streamer_user_id: str | None = None
 
 
 @router.post("/watch-stream")
-async def watch_stream_endpoint(body: WatchStreamBody) -> dict:
+async def watch_stream_endpoint(
+    body: WatchStreamBody,
+    user: str = Depends(require_login),
+) -> dict:
     """Connect account to voice channel and watch an ongoing Go Live stream."""
-    acc = await discords().find_one({"_id": ObjectId(body.account_id)})
+    acc = await discords().find_one({"_id": ObjectId(body.account_id), "owner": user})
     if acc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
     try:
@@ -174,7 +175,6 @@ async def watch_stream_endpoint(body: WatchStreamBody) -> dict:
         proxy_url=proxy_url,
     )
 
-    # Mark joined_voice=True (connected to voice as stream viewer)
     if result.get("ok"):
         await discords().update_one(
             {"_id": ObjectId(body.account_id)},
@@ -208,10 +208,10 @@ class VoiceChannelBody(BaseModel):
 
 
 @router.get("/channels")
-async def list_voice_channels() -> list[dict]:
-    """List all saved voice channel templates."""
+async def list_voice_channels(user: str = Depends(require_login)) -> list[dict]:
+    """List saved voice channel templates for this user."""
     out: list[dict] = []
-    async for ch in voice_channels().find().sort("label", 1):
+    async for ch in voice_channels().find({"owner": user}).sort("label", 1):
         out.append({
             "id": str(ch["_id"]),
             "guild_id": ch["guild_id"],
@@ -222,20 +222,32 @@ async def list_voice_channels() -> list[dict]:
 
 
 @router.post("/channels")
-async def create_voice_channel(body: VoiceChannelBody) -> dict:
+async def create_voice_channel(
+    body: VoiceChannelBody,
+    user: str = Depends(require_login),
+) -> dict:
     res = await voice_channels().insert_one({
+        "owner": user,
         "guild_id": body.guild_id,
         "channel_id": body.channel_id,
         "label": body.label,
     })
-    return {"id": str(res.inserted_id), "guild_id": body.guild_id, "channel_id": body.channel_id, "label": body.label}
+    return {
+        "id": str(res.inserted_id),
+        "guild_id": body.guild_id,
+        "channel_id": body.channel_id,
+        "label": body.label,
+    }
 
 
 @router.delete("/channels/{channel_doc_id}")
-async def delete_voice_channel(channel_doc_id: str) -> dict:
+async def delete_voice_channel(
+    channel_doc_id: str,
+    user: str = Depends(require_login),
+) -> dict:
     if not ObjectId.is_valid(channel_doc_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid id")
-    res = await voice_channels().delete_one({"_id": ObjectId(channel_doc_id)})
+    res = await voice_channels().delete_one({"_id": ObjectId(channel_doc_id), "owner": user})
     if res.deleted_count == 0:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     return {"deleted": True}
