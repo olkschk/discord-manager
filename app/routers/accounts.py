@@ -135,6 +135,7 @@ async def validate_all() -> dict:
         if is_valid and data:
             update["username"] = data.get("username")
             update["discord_user_id"] = data.get("id")
+            update["avatar"] = data.get("avatar")  # hash for CDN URL
             if not acc.get("name"):
                 update["name"] = data.get("global_name") or data.get("username")
         await discords().update_one({"_id": acc["_id"]}, {"$set": update})

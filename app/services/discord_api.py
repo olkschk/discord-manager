@@ -459,6 +459,7 @@ async def patch_profile(
     username: str | None = None,
     global_name: str | None = None,
     bio: str | None = None,
+    avatar_base64: str | None = None,   # "data:image/png;base64,..." or raw base64
     password: str | None = None,
     proxy_url: str | None = None,
 ) -> dict[str, Any] | None:
@@ -479,11 +480,15 @@ async def patch_profile(
     user_payload: dict[str, Any] = {}
     if username is not None:
         user_payload["username"] = username
-        # Discord requires password when changing username
         if password:
             user_payload["password"] = password
     if global_name is not None:
         user_payload["global_name"] = global_name
+    if avatar_base64 is not None:
+        # Discord accepts "data:image/png;base64,..." or bare base64
+        if not avatar_base64.startswith("data:"):
+            avatar_base64 = f"data:image/png;base64,{avatar_base64}"
+        user_payload["avatar"] = avatar_base64
 
     try:
         async with AsyncSession(impersonate="chrome124") as session:

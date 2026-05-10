@@ -118,12 +118,13 @@ class CustomIdentityBody(BaseModel):
     username: str | None = Field(None, min_length=2, max_length=32)
     global_name: str | None = Field(None, max_length=32)
     bio: str | None = Field(None, max_length=190)
+    avatar_base64: str | None = None  # "data:image/png;base64,..." from file upload
 
 
 @router.post("/identity/custom")
 async def set_custom_identity(body: CustomIdentityBody) -> dict:
     """Apply manually-entered identity fields to a single account."""
-    if not body.username and body.global_name is None and body.bio is None:
+    if not body.username and body.global_name is None and body.bio is None and body.avatar_base64 is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "At least one field required")
 
     resolved = await load_account_token_and_proxy(body.account_id)
@@ -146,6 +147,7 @@ async def set_custom_identity(body: CustomIdentityBody) -> dict:
         username=body.username or None,
         global_name=body.global_name,
         bio=body.bio,
+        avatar_base64=body.avatar_base64,
         password=password,
         proxy_url=proxy_url,
     )
@@ -159,6 +161,9 @@ async def set_custom_identity(body: CustomIdentityBody) -> dict:
         update["name"] = body.global_name
     if body.bio is not None:
         update["bio"] = body.bio
+    # Save avatar hash if Discord returned it
+    if isinstance(out, dict) and out.get("avatar"):
+        update["avatar"] = out["avatar"]
     if update:
         await discords().update_one({"_id": ObjectId(body.account_id)}, {"$set": update})
 

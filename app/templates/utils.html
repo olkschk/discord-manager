@@ -331,6 +331,18 @@
         <span>Bio</span>
         <textarea id="ciBio" rows="3" placeholder="About me (max 190)" maxlength="190"></textarea>
       </label>
+      <div>
+        <label>
+          <span>Avatar <span style="color:var(--text-disabled);">(PNG/JPG, max 8 MB)</span></span>
+        </label>
+        <div style="display:flex;gap:var(--sp-sm);align-items:center;margin-top:var(--sp-sm);">
+          <label class="file-pick" style="cursor:pointer;">
+            <input type="file" id="ciAvatarFile" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none;" />
+            <span id="ciAvatarLabel">Choose image…</span>
+          </label>
+          <img id="ciAvatarPreview" src="" alt="" hidden style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:1px solid var(--border-visible);" />
+        </div>
+      </div>
       <div style="display:flex; justify-content:space-between; align-items:center; gap:var(--sp-md);">
         <output id="ciResult" class="result"></output>
         <button type="submit" class="primary">Apply</button>
@@ -557,9 +569,27 @@ function openCustomModal(row) {
   document.getElementById("ciBio").value = row.dataset.bio || "";
   document.getElementById("ciResult").textContent = "";
   document.getElementById("ciResult").className = "result";
+  // Reset avatar
+  document.getElementById("ciAvatarFile").value = "";
+  document.getElementById("ciAvatarLabel").textContent = "Choose image…";
+  document.getElementById("ciAvatarPreview").hidden = true;
   setUsernameStatus("", "");
   document.getElementById("customIdentityModal").hidden = false;
 }
+
+// Avatar file preview
+document.getElementById("ciAvatarFile")?.addEventListener("change", () => {
+  const f = document.getElementById("ciAvatarFile").files[0];
+  if (!f) return;
+  document.getElementById("ciAvatarLabel").textContent = `${f.name} · ${(f.size/1024).toFixed(0)}kB`;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const preview = document.getElementById("ciAvatarPreview");
+    preview.src = e.target.result;
+    preview.hidden = false;
+  };
+  reader.readAsDataURL(f);
+});
 function closeCustomModal() {
   document.getElementById("customIdentityModal").hidden = true;
   customAccountId = null;
@@ -614,15 +644,28 @@ document.getElementById("ciForm")?.addEventListener("submit", async (e) => {
   const username = document.getElementById("ciUsername").value.trim() || null;
   const global_name = document.getElementById("ciGlobalName").value.trim() || null;
   const bio = document.getElementById("ciBio").value.trim() !== "" ? document.getElementById("ciBio").value.trim() : null;
-  if (!username && !global_name && bio === null) {
+  const avatarFile = document.getElementById("ciAvatarFile").files[0] || null;
+
+  if (!username && !global_name && bio === null && !avatarFile) {
     setResult(out, false, "Fill at least one field");
     return;
   }
   setResult(out, true, "Applying…");
+
+  // Read avatar as base64 if selected
+  let avatar_base64 = null;
+  if (avatarFile) {
+    avatar_base64 = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result); // "data:image/png;base64,..."
+      reader.readAsDataURL(avatarFile);
+    });
+  }
+
   const r = await fetch("/api/utils/identity/custom", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ account_id: customAccountId, username, global_name, bio }),
+    body: JSON.stringify({ account_id: customAccountId, username, global_name, bio, avatar_base64 }),
   });
   const data = await r.json();
   if (r.ok && data.ok) {
