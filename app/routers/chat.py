@@ -6,8 +6,11 @@ import logging
 import random
 from datetime import datetime, timezone
 
+import json
+
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.database import chat_channels, messages as messages_coll, private_messages as private_messages_coll
@@ -256,6 +259,42 @@ async def delete_chat_channel(
 
 
 # ── Topic messages ────────────────────────────────────────────────────────────
+@router.get("/topic/{topic_id}/stream")
+async def stream_topic_messages(
+    topic_id: str,
+    request: Request,
+    user: str = Depends(require_login),
+) -> StreamingResponse:
+    """SSE stream — pushes new messages to the browser the moment they arrive
+    via the Gateway listener. Sends a keepalive comment every 20 s so proxies
+    don't kill the connection."""
+    from app.services.topic_listener import subscribe, unsubscribe
+
+    q = subscribe(topic_id)
+
+    async def generator():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=20)
+                    yield f"data: {json.dumps(msg)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"  # keeps the connection alive through proxies
+        finally:
+            unsubscribe(topic_id, q)
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # tell nginx not to buffer SSE
+        },
+    )
+
+
 @router.get("/topic/{topic_id}/messages")
 async def list_topic_messages(topic_id: str) -> list[dict]:
     cursor = messages_coll().find({"topic": topic_id}).sort("mid", -1).limit(100)

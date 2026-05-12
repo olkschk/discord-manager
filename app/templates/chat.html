@@ -270,7 +270,8 @@ document.querySelectorAll(".chat-subtab").forEach(btn => {
     const tab = btn.dataset.tab;
     document.getElementById("tabTopics").style.display = tab === "topics" ? "grid" : "none";
     document.getElementById("tabDMs").style.display = tab === "dms" ? "grid" : "none";
-    if (tab === "dms") loadConversations();
+    if (tab === "dms") { if (_topicSSE) { _topicSSE.close(); _topicSSE = null; } loadConversations(); }
+    if (tab === "topics" && currentTopic) connectTopicSSE(currentTopic);
   });
 });
 
@@ -422,25 +423,69 @@ document.addEventListener("click", (e) => {
   if (e.target.id === "cancelReply" || e.target.closest("#cancelReply")) setReply(null);
 });
 
+// Load full message history from REST (initial load only)
 async function loadTopicMessages() {
   if (!currentTopic) return;
   const r = await fetch(`/api/chat/topic/${currentTopic}/messages`);
   const data = await r.json();
-  const atBottom = messagesEl.scrollHeight - messagesEl.clientHeight <= messagesEl.scrollTop + 60;
   renderMessages(data);
-  if (atBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+  messagesEl.scrollTop = messagesEl.scrollHeight;
   document.getElementById("messageCount").textContent = `${data.length} stored`;
 }
 
-// Auto-refresh topic messages every 3–7 seconds (random delay)
-function scheduleTopicRefresh() {
-  const delay = 3000 + Math.random() * 4000;  // 3000–7000 ms
-  setTimeout(async () => {
-    await loadTopicMessages();
-    scheduleTopicRefresh();
-  }, delay);
+// Build a single message article element
+function buildMsgEl(m) {
+  const time = m.timestamp ? new Date(m.timestamp).toLocaleString("ru-RU") : "";
+  const img = m.image ? `<img class="msg__img" src="${escapeHtml(m.image)}" alt="" style="max-width:320px;border-radius:4px;margin-top:4px;display:block;" />` : "";
+  const replyBar = m.reply_to_author ? `<div style="border-left:2px solid var(--text-disabled);padding:2px 6px;margin-bottom:4px;font-size:11px;color:var(--text-disabled);font-family:var(--font-mono);">↩ ${escapeHtml(m.reply_to_author)}: ${escapeHtml((m.reply_to_content||"").slice(0,60))}</div>` : "";
+  const discordId = m.discord_message_id || "";
+  const avatarHtml = m.avatar_url
+    ? `<img src="${escapeHtml(m.avatar_url)}" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;margin-top:2px;" />`
+    : `<div style="width:32px;height:32px;border-radius:50%;background:var(--surface-raised);border:1px solid var(--border);flex-shrink:0;"></div>`;
+  const el = document.createElement("article");
+  el.className = "msg";
+  el.dataset.id = discordId;
+  el.style.cssText = "display:flex;gap:8px;border-left:none;padding:4px 0;";
+  el.innerHTML = `${avatarHtml}
+    <div style="flex:1;min-width:0;">
+      <header class="msg__head" style="margin-bottom:2px;">
+        <span class="msg__from">${escapeHtml(m.from || "?")}</span>
+        <span class="msg__time">${escapeHtml(time)}</span>
+        ${discordId ? `<button type="button" class="small msg__reply" data-id="${escapeHtml(discordId)}" style="padding:1px 5px;font-size:9px;">Reply</button>` : ""}
+        ${discordId ? `<button type="button" class="small msg__react-btn" data-id="${escapeHtml(discordId)}" style="padding:1px 5px;font-size:9px;">React</button>` : ""}
+      </header>
+      ${replyBar}
+      <p class="msg__text" style="margin:0;word-break:break-word;">${escapeHtml(m.text || "")}</p>${img}
+    </div>`;
+  el.querySelectorAll(".msg__reply").forEach(b => b.addEventListener("click", () => setReply(b.dataset.id)));
+  return el;
 }
-scheduleTopicRefresh();
+
+// Append a single new message (called by SSE)
+function appendMessage(m) {
+  const empty = messagesEl.querySelector(".messages__empty");
+  if (empty) empty.remove();
+  const atBottom = messagesEl.scrollHeight - messagesEl.clientHeight <= messagesEl.scrollTop + 80;
+  messagesEl.appendChild(buildMsgEl(m));
+  if (atBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+  const count = messagesEl.querySelectorAll("article").length;
+  document.getElementById("messageCount").textContent = `${count} stored`;
+}
+
+// SSE connection — receives new messages instantly from the gateway listener
+let _topicSSE = null;
+function connectTopicSSE(topicId) {
+  if (_topicSSE) { _topicSSE.close(); _topicSSE = null; }
+  if (!topicId) return;
+  const es = new EventSource(`/api/chat/topic/${topicId}/stream`);
+  es.onmessage = (e) => {
+    try { appendMessage(JSON.parse(e.data)); } catch {}
+  };
+  es.onerror = () => {
+    // Browser auto-reconnects EventSource after network blip — no manual action needed
+  };
+  _topicSSE = es;
+}
 
 document.getElementById("topicForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -448,39 +493,20 @@ document.getElementById("topicForm").addEventListener("submit", async (e) => {
   if (!tid) return;
   currentTopic = tid;
   document.getElementById("topicLabel").textContent = tid;
-  await loadTopicMessages();
+  await loadTopicMessages();          // fetch history once
+  connectTopicSSE(tid);               // then stream new messages in real-time
   messagesEl.scrollTop = messagesEl.scrollHeight;
 });
 
 function renderMessages(items) {
+  messagesEl.innerHTML = "";
   if (!items.length) {
     messagesEl.innerHTML = '<p class="messages__empty">No stored messages for this topic yet.</p>';
     return;
   }
-  messagesEl.innerHTML = items.map(m => {
-    const time = m.timestamp ? new Date(m.timestamp).toLocaleString("ru-RU") : "";
-    const img = m.image ? `<img class="msg__img" src="${escapeHtml(m.image)}" alt="" style="max-width:320px;border-radius:4px;margin-top:4px;display:block;" />` : "";
-    const replyBar = m.reply_to_author ? `<div style="border-left:2px solid var(--text-disabled);padding:2px 6px;margin-bottom:4px;font-size:11px;color:var(--text-disabled);font-family:var(--font-mono);">↩ ${escapeHtml(m.reply_to_author)}: ${escapeHtml((m.reply_to_content||"").slice(0,60))}</div>` : "";
-    const discordId = m.discord_message_id || "";
-    const avatarHtml = m.avatar_url
-      ? `<img src="${escapeHtml(m.avatar_url)}" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;margin-top:2px;" />`
-      : `<div style="width:32px;height:32px;border-radius:50%;background:var(--surface-raised);border:1px solid var(--border);flex-shrink:0;"></div>`;
-    return `<article class="msg" data-id="${escapeHtml(discordId)}" style="display:flex;gap:8px;border-left:none;padding:4px 0;">
-      ${avatarHtml}
-      <div style="flex:1;min-width:0;">
-        <header class="msg__head" style="margin-bottom:2px;">
-          <span class="msg__from">${escapeHtml(m.from || "?")}</span>
-          <span class="msg__time">${escapeHtml(time)}</span>
-          ${discordId ? `<button type="button" class="small msg__reply" data-id="${escapeHtml(discordId)}" style="padding:1px 5px;font-size:9px;">Reply</button>` : ""}
-          ${discordId ? `<button type="button" class="small msg__react-btn" data-id="${escapeHtml(discordId)}" style="padding:1px 5px;font-size:9px;">React</button>` : ""}
-        </header>
-        ${replyBar}
-        <p class="msg__text" style="margin:0;word-break:break-word;">${escapeHtml(m.text || "")}</p>${img}
-      </div>
-    </article>`;
-  }).join("");
-  messagesEl.querySelectorAll(".msg__reply").forEach(b => b.addEventListener("click", () => setReply(b.dataset.id)));
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  const frag = document.createDocumentFragment();
+  items.forEach(m => frag.appendChild(buildMsgEl(m)));
+  messagesEl.appendChild(frag);
 }
 
 // File picker

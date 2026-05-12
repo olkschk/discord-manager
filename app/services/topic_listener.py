@@ -27,6 +27,23 @@ GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json"
 # Module-level task reference
 _task: asyncio.Task | None = None
 
+# ── Pub/sub for SSE clients ───────────────────────────────────────────────────
+# channel_id -> set of asyncio.Queue, one per connected browser tab
+from collections import defaultdict  # noqa: E402
+_subscribers: dict[str, set[asyncio.Queue]] = defaultdict(set)
+
+
+def subscribe(topic_id: str) -> asyncio.Queue:
+    """Register a new SSE listener for a topic. Returns its queue."""
+    q: asyncio.Queue = asyncio.Queue()
+    _subscribers[topic_id].add(q)
+    return q
+
+
+def unsubscribe(topic_id: str, q: asyncio.Queue) -> None:
+    """Deregister an SSE listener when client disconnects."""
+    _subscribers[topic_id].discard(q)
+
 
 def _build_identify_props() -> dict:
     s = get_settings()
@@ -102,6 +119,22 @@ async def _save_message(data: dict, topic_id: str) -> None:
         ids = [d["_id"] async for d in oldest_cursor]
         if ids:
             await messages_coll().delete_many({"_id": {"$in": ids}})
+
+    # Push to any SSE clients watching this topic
+    if _subscribers[topic_id]:
+        sse_payload = {
+            "id": "",
+            "discord_message_id": msg_doc["discord_message_id"],
+            "text": msg_doc["text"],
+            "image": msg_doc["image"],
+            "from": msg_doc["from"],
+            "avatar_url": msg_doc["avatar_url"],
+            "reply_to_author": msg_doc["reply_to_author"],
+            "reply_to_content": msg_doc["reply_to_content"],
+            "timestamp": msg_doc["timestamp"].isoformat() if msg_doc.get("timestamp") else None,
+        }
+        for q in list(_subscribers[topic_id]):
+            await q.put(sse_payload)
 
 
 def _parse_ts(ts: str | None) -> datetime:
