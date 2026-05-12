@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from pymongo.errors import DuplicateKeyError
 
-from app.database import discords, topics
+from app.database import chat_channels, discords, topics
 from app.security import require_login
 
 router = APIRouter(
@@ -40,6 +40,16 @@ async def add_topic(
         res = await topics().insert_one({"owner": user, "channel_id": channel_id, "label": label})
     except DuplicateKeyError:
         raise HTTPException(status.HTTP_409_CONFLICT, "Topic already registered")
+
+    # Auto-add to saved chat channels if not already there
+    existing = await chat_channels().find_one({"owner": user, "channel_id": channel_id})
+    if not existing:
+        await chat_channels().insert_one({
+            "owner": user,
+            "channel_id": channel_id,
+            "label": label or channel_id,
+        })
+
     return {"id": str(res.inserted_id), "channel_id": channel_id, "label": label}
 
 
