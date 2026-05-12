@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Admin · Discord Farm{% endblock %}
+{% block body %}
+<div class="shell">
+  {% include "_topbar.html" %}
+
+  <main class="page" style="max-width:560px; margin:0 auto; padding:var(--sp-2xl) var(--sp-xl);">
+
+    <div class="section__head" style="margin-bottom:var(--sp-xl);">
+      <span class="section__title" style="font-size:18px;">Panel Users</span>
+    </div>
+
+    <!-- Create user form -->
+    <div style="background:var(--surface-raised);border:1px solid var(--border-visible);border-radius:4px;padding:var(--sp-lg);margin-bottom:var(--sp-xl);">
+      <div class="section__head" style="margin-bottom:var(--sp-md);">
+        <span class="section__title">New User</span>
+      </div>
+      <form id="createForm" style="display:grid;gap:var(--sp-sm);">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-sm);">
+          <div style="display:grid;gap:4px;">
+            <label style="font-family:var(--font-mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--text-secondary);">Login</label>
+            <input type="text" id="newLogin" placeholder="username" minlength="2" maxlength="32"
+              pattern="[a-zA-Z0-9_\-]+"
+              style="font-family:var(--font-mono);" required />
+          </div>
+          <div style="display:grid;gap:4px;">
+            <label style="font-family:var(--font-mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--text-secondary);">Password</label>
+            <input type="password" id="newPassword" placeholder="min 8 chars" minlength="8" required />
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <output id="createResult" class="result"></output>
+          <button type="submit" class="primary small">Create</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Users list -->
+    <div style="display:grid;gap:var(--sp-xs);" id="usersList">
+      {% for u in panel_users %}
+      <div class="user-row" data-id="{{ u.id }}" style="display:flex;align-items:center;justify-content:space-between;padding:var(--sp-sm) var(--sp-md);background:var(--surface-raised);border:1px solid var(--border);border-radius:4px;">
+        <div style="display:flex;align-items:center;gap:var(--sp-sm);">
+          <span style="font-family:var(--font-mono);font-size:13px;color:var(--text-display);">{{ u.login }}</span>
+          {% if u.is_self %}
+          <span style="font-family:var(--font-mono);font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--accent);background:rgba(99,102,241,.12);padding:2px 6px;border-radius:3px;">you</span>
+          {% endif %}
+        </div>
+        {% if not u.is_self %}
+        <button type="button" class="small danger del-btn" data-id="{{ u.id }}" data-login="{{ u.login }}"
+          style="padding:3px 10px;font-size:10px;">Delete</button>
+        {% endif %}
+      </div>
+      {% else %}
+      <p style="font-family:var(--font-mono);font-size:11px;color:var(--text-disabled);text-transform:uppercase;letter-spacing:.15em;text-align:center;padding:var(--sp-lg) 0;">No users</p>
+      {% endfor %}
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ── Create user ──────────────────────────────────────────────────────────────
+document.getElementById("createForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const login = document.getElementById("newLogin").value.trim();
+  const password = document.getElementById("newPassword").value;
+  const out = document.getElementById("createResult");
+
+  out.className = "result"; out.textContent = "Creating…";
+
+  const r = await fetch("/api/admin/users", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ login, password }),
+  });
+  const d = await r.json();
+
+  if (r.ok) {
+    out.className = "result ok"; out.textContent = `Created: ${d.login}`;
+    document.getElementById("newLogin").value = "";
+    document.getElementById("newPassword").value = "";
+    addUserRow(d.id, d.login);
+  } else {
+    out.className = "result err"; out.textContent = d.detail || `Error ${r.status}`;
+  }
+});
+
+function addUserRow(id, login) {
+  const list = document.getElementById("usersList");
+  // Remove "no users" placeholder if present
+  const empty = list.querySelector("p");
+  if (empty) empty.remove();
+
+  const div = document.createElement("div");
+  div.className = "user-row";
+  div.dataset.id = id;
+  div.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:var(--sp-sm) var(--sp-md);background:var(--surface-raised);border:1px solid var(--border);border-radius:4px;";
+  div.innerHTML = `
+    <span style="font-family:var(--font-mono);font-size:13px;color:var(--text-display);">${escapeHtml(login)}</span>
+    <button type="button" class="small danger del-btn" data-id="${escapeHtml(id)}" data-login="${escapeHtml(login)}"
+      style="padding:3px 10px;font-size:10px;">Delete</button>
+  `;
+  list.appendChild(div);
+  bindDelete(div.querySelector(".del-btn"));
+}
+
+// ── Delete user ──────────────────────────────────────────────────────────────
+function bindDelete(btn) {
+  btn.addEventListener("click", async () => {
+    if (!confirm(`Delete user "${btn.dataset.login}"? This cannot be undone.`)) return;
+    const r = await fetch(`/api/admin/users/${btn.dataset.id}`, { method: "DELETE" });
+    if (r.ok) {
+      btn.closest(".user-row").remove();
+    } else {
+      const d = await r.json().catch(() => ({}));
+      alert(d.detail || "Delete failed");
+    }
+  });
+}
+
+document.querySelectorAll(".del-btn").forEach(bindDelete);
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+</script>
+{% endblock %}

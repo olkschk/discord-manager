@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.logging_config import configure_logging
 from app.routers import (
     accounts,
+    admin,
     auth,
     chat,
     inbox,
@@ -63,6 +64,7 @@ def create_app() -> FastAPI:
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     app.include_router(auth.router)
+    app.include_router(admin.router)
     app.include_router(pages.router)
     app.include_router(accounts.router)
     app.include_router(proxies.router)
