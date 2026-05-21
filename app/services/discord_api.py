@@ -974,3 +974,134 @@ async def enable_mfa(
     except Exception as exc:  # noqa: BLE001
         logger.warning("enable_mfa error: %s", exc)
         return None
+
+
+async def create_stage_instance(
+    token: str,
+    channel_id: str,
+    topic: str,
+    *,
+    privacy_level: int = 2,
+    proxy_url: str | None = None,
+) -> dict[str, Any]:
+    """POST /stage-instances — start a Stage in a channel."""
+    settings = get_settings()
+    timeout = ClientTimeout(total=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                f"{settings.discord_api_base}/stage-instances",
+                headers=_headers(token),
+                json={"channel_id": channel_id, "topic": topic, "privacy_level": privacy_level},
+                proxy=proxy_url,
+                ssl=False,
+            ) as resp:
+                body = await resp.json(content_type=None)
+                if resp.status in (200, 201):
+                    return {"ok": True, "stage": body}
+                logger.warning("create_stage_instance status=%s body=%.200s", resp.status, body)
+                return {"ok": False, "status": resp.status, "body": body}
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("create_stage_instance network error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
+async def delete_stage_instance(
+    token: str,
+    channel_id: str,
+    *,
+    proxy_url: str | None = None,
+) -> dict[str, Any]:
+    """DELETE /stage-instances/{channel_id} — end a Stage."""
+    settings = get_settings()
+    timeout = ClientTimeout(total=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.delete(
+                f"{settings.discord_api_base}/stage-instances/{channel_id}",
+                headers=_headers(token),
+                proxy=proxy_url,
+                ssl=False,
+            ) as resp:
+                if resp.status == 204:
+                    return {"ok": True}
+                text = await resp.text()
+                logger.warning("delete_stage_instance status=%s body=%.200s", resp.status, text)
+                return {"ok": False, "status": resp.status, "body": text}
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("delete_stage_instance network error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
+async def set_voice_suppress(
+    token: str,
+    guild_id: str,
+    channel_id: str,
+    suppress: bool,
+    *,
+    proxy_url: str | None = None,
+) -> dict[str, Any]:
+    """PATCH /guilds/{guild_id}/voice-states/@me — become speaker (suppress=False) or audience (suppress=True)."""
+    settings = get_settings()
+    timeout = ClientTimeout(total=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.patch(
+                f"{settings.discord_api_base}/guilds/{guild_id}/voice-states/@me",
+                headers=_headers(token),
+                json={"channel_id": channel_id, "suppress": suppress},
+                proxy=proxy_url,
+                ssl=False,
+            ) as resp:
+                if resp.status == 204:
+                    return {"ok": True}
+                text = await resp.text()
+                logger.warning("set_voice_suppress status=%s body=%.200s", resp.status, text)
+                return {"ok": False, "status": resp.status, "body": text}
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("set_voice_suppress network error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
+async def request_to_speak(
+    token: str,
+    guild_id: str,
+    channel_id: str,
+    *,
+    request: bool = True,
+    proxy_url: str | None = None,
+) -> dict[str, Any]:
+    """Request (or withdraw) speaker status on a Stage channel.
+
+    PATCH /guilds/{guild_id}/voice-states/@me
+    request=True  → sets request_to_speak_timestamp to now
+    request=False → clears it (withdraw request)
+    Returns {"ok": True} on 204, or {"ok": False, "status": code} on error.
+    """
+    from datetime import datetime, timezone
+
+    settings = get_settings()
+    api = settings.discord_api_base
+    timestamp = datetime.now(timezone.utc).isoformat() if request else None
+    body: dict[str, Any] = {
+        "channel_id": channel_id,
+        "request_to_speak_timestamp": timestamp,
+    }
+    timeout = ClientTimeout(total=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.patch(
+                f"{api}/guilds/{guild_id}/voice-states/@me",
+                headers=_headers(token),
+                json=body,
+                proxy=proxy_url,
+                ssl=False,
+            ) as resp:
+                if resp.status == 204:
+                    return {"ok": True}
+                text = await resp.text()
+                logger.warning("request_to_speak status=%s body=%.200s", resp.status, text)
+                return {"ok": False, "status": resp.status, "body": text}
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("request_to_speak network error: %s", exc)
+        return {"ok": False, "error": str(exc)}

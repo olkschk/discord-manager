@@ -148,7 +148,19 @@ class GatewayConnection:
                     data = json.loads(msg.data)
                     if data.get("s") is not None:
                         self.last_seq = data["s"]
+                    op = data.get("op")
+                    t = data.get("t")
+                    if op == OP_DISPATCH:
+                        if t in ("VOICE_STATE_UPDATE", "VOICE_SERVER_UPDATE"):
+                            logger.debug("gateway EVENT t=%s d=%.300s", t, data.get("d"))
+                        else:
+                            logger.debug("gateway EVENT t=%s d=%.200s", t, data.get("d"))
+                    elif op == OP_INVALID_SESSION:
+                        logger.warning("gateway INVALID_SESSION resumable=%s", data.get("d"))
+                    elif op not in (OP_HEARTBEAT_ACK, OP_HEARTBEAT):
+                        logger.debug("gateway OP=%s d=%.200s", op, data.get("d"))
                 elif msg.type in (WSMsgType.CLOSED, WSMsgType.CLOSING, WSMsgType.ERROR):
+                    logger.warning("gateway WS closed type=%s data=%s", msg.type, msg.data)
                     break
         except asyncio.CancelledError:
             raise
@@ -200,6 +212,22 @@ class GatewayConnection:
                 },
             }
         )
+
+    async def join_stage(self, guild_id: str, channel_id: str) -> None:
+        """Join a Stage channel as audience member (muted, not deafened)."""
+        await asyncio.sleep(0.8)
+        payload = {
+            "op": OP_VOICE_STATE_UPDATE,
+            "d": {
+                "guild_id": guild_id,
+                "channel_id": channel_id,
+                "self_mute": True,
+                "self_deaf": False,
+            },
+        }
+        logger.info("gateway join_stage sending VOICE_STATE_UPDATE guild=%s channel=%s", guild_id, channel_id)
+        await self._send(payload)
+        logger.info("gateway join_stage sent")
 
     async def leave_voice(self, guild_id: str) -> None:
         await self._send(

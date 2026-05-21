@@ -20,6 +20,7 @@ from app.routers import (
     monitor as monitor_router,
     pages,
     proxies,
+    stage,
     templates as templates_router,
     utils,
     voice,
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(monitor_router.router)
     app.include_router(inbox.router)
     app.include_router(voice.router)
+    app.include_router(stage.router)
 
     return app
 

@@ -1,0 +1,425 @@
+{% extends "base.html" %}
+{% block title %}Stage · Discord Farm{% endblock %}
+{% block body %}
+<div class="shell">
+  {% include "_topbar.html" %}
+
+  <main class="page" style="display:grid; grid-template-columns: 1fr 300px; gap: var(--sp-xl); align-items: start;">
+
+    <!-- Left: connection panel -->
+    <section>
+      <div class="section__head">
+        <span class="section__title">Stage connections</span>
+        <span class="section__sub">Gateway WS · appear in stage as audience</span>
+      </div>
+
+      <article class="panel">
+        <div class="split">
+          <label>
+            <span>Guild ID</span>
+            <input type="text" id="stageGuildId" placeholder="123456789012345678" spellcheck="false" />
+          </label>
+          <label>
+            <span>Channel ID</span>
+            <input type="text" id="stageChannelId" placeholder="123456789012345678" spellcheck="false" />
+          </label>
+        </div>
+
+        <div class="split">
+          <label>
+            <span>Delay min (s)</span>
+            <input type="number" id="delayMin" value="1" min="0" max="60" step="0.5" />
+          </label>
+          <label>
+            <span>Delay max (s)</span>
+            <input type="number" id="delayMax" value="4" min="0" max="60" step="0.5" />
+          </label>
+        </div>
+
+        <div class="rowlist" style="margin-top: var(--sp-md);">
+          {% for a in accounts %}
+          <label class="rowlist__row">
+            <input type="checkbox" class="acc-check" data-section="stage" value="{{ a.id }}" />
+            <span class="rowlist__primary">{{ a.email }}</span>
+            <span class="rowlist__meta">{{ a.username }}</span>
+            <span class="status {% if a.joined_voice %}ok{% else %}muted{% endif %}">
+              {{ "in stage" if a.joined_voice else "—" }}
+            </span>
+            <span class="rowlist__bio">{{ a.voice_channel_id or '' }}</span>
+          </label>
+          {% else %}
+          <p class="muted" style="padding:var(--sp-md)">No accounts on server yet.</p>
+          {% endfor %}
+        </div>
+
+        <div style="display:flex; justify-content:space-between; gap:var(--sp-md); margin-top:var(--sp-md);">
+          <output id="stageResult" class="result"></output>
+          <div style="display:flex; gap:var(--sp-sm);">
+            <button type="button" id="stageSelectAllBtn" class="small">Select all</button>
+            <button type="button" id="stageLeaveBtn" class="small danger">Leave</button>
+            <button type="button" id="stageJoinBtn" class="primary">Connect</button>
+          </div>
+        </div>
+      </article>
+
+      <!-- Start / End stage -->
+      <div style="margin-top: var(--sp-xl);">
+        <div class="section__head">
+          <span class="section__title">Start stage</span>
+          <span class="section__sub">Create stage instance · become speaker</span>
+        </div>
+        <article class="panel" style="gap:var(--sp-md);">
+          <p class="panel__hint">Account must already be connected. Uses Guild / Channel ID from above.</p>
+          <label>
+            <span>Topic</span>
+            <input type="text" id="stageTopic" placeholder="Crypto Market Talk" maxlength="120" spellcheck="false" />
+          </label>
+          <label>
+            <span>Account <span style="color:var(--text-disabled);">(must be in stage)</span></span>
+            <select id="startStageAccount">
+              <option value="">Select account…</option>
+              {% for a in accounts if a.joined_voice %}
+              <option value="{{ a.id }}">{{ a.username }} ({{ a.email }})</option>
+              {% else %}
+              <option value="" disabled>— no accounts in stage —</option>
+              {% endfor %}
+            </select>
+          </label>
+          <div style="display:flex; gap:var(--sp-sm); align-items:center;">
+            <output id="startStageResult" class="result" style="flex:1; font-size:11px;"></output>
+            <button type="button" id="endStageBtn" class="small danger">End stage</button>
+            <button type="button" id="startStageBtn" class="primary small">▶ Start stage</button>
+          </div>
+        </article>
+      </div>
+
+      <!-- Request to speak -->
+      <div style="margin-top: var(--sp-xl);">
+        <div class="section__head">
+          <span class="section__title">Request to speak</span>
+          <span class="section__sub">Raise hand on Stage channel</span>
+        </div>
+        <article class="panel" style="gap:var(--sp-md);">
+          <p class="panel__hint">Account must already be connected to the stage channel. Uses Guild / Channel ID from above.</p>
+          <label>
+            <span>Account</span>
+            <select id="speakAccountSelect">
+              <option value="">Select account…</option>
+              {% for a in accounts if a.joined_voice %}
+              <option value="{{ a.id }}">{{ a.username }} ({{ a.email }})</option>
+              {% else %}
+              <option value="" disabled>— no accounts in stage —</option>
+              {% endfor %}
+            </select>
+          </label>
+          <div style="display:flex; gap:var(--sp-sm); align-items:center;">
+            <output id="speakResult" class="result" style="flex:1; font-size:11px;"></output>
+            <button type="button" id="withdrawSpeakBtn" class="small danger">Withdraw</button>
+            <button type="button" id="requestSpeakBtn" class="primary small">🎤 Request</button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Right: saved channels -->
+    <section style="display:grid; gap:var(--sp-xl); align-content:start;">
+      <div>
+        <div class="section__head">
+          <span class="section__title">Saved channels</span>
+        </div>
+        <article class="panel" style="gap:var(--sp-sm);">
+          <p class="panel__hint">Click to auto-fill Guild + Channel IDs.</p>
+          <div id="scList" class="topics-list" style="min-height:2rem">
+            <span class="muted" style="font-size:11px;letter-spacing:.15em;text-transform:uppercase">Loading…</span>
+          </div>
+          <form id="scSaveForm" style="display:grid; gap:var(--sp-sm); margin-top:var(--sp-sm);">
+            <label>
+              <span>Label</span>
+              <input type="text" id="scLabel" placeholder="Main stage" maxlength="64" required />
+            </label>
+            <button type="submit" class="primary small">Save current IDs</button>
+          </form>
+          <output id="scResult" class="result"></output>
+        </article>
+      </div>
+      <!-- Audio player -->
+      <div>
+        <div class="section__head">
+          <span class="section__title">Audio player</span>
+          <span class="section__sub">Connect · unsuppress · play</span>
+        </div>
+        <article class="panel" style="gap:var(--sp-sm);">
+          <p class="panel__hint">Each account joins stage, becomes speaker, and plays its track simultaneously. Requires FFmpeg.</p>
+
+          <div class="rowlist" id="stagePlayAccountList">
+            {% for a in accounts %}
+            <div class="rowlist__row stage-play-row" data-id="{{ a.id }}" style="gap:var(--sp-sm);">
+              <input type="checkbox" class="stage-play-check" value="{{ a.id }}" />
+              <span class="rowlist__primary" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ a.email }}">{{ a.username }}</span>
+              <select class="stage-play-track" style="width:140px; font-size:11px;">
+                <option value="">— track —</option>
+              </select>
+            </div>
+            {% else %}
+            <p class="muted" style="padding:var(--sp-sm)">No accounts on server yet.</p>
+            {% endfor %}
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:var(--sp-xs);">
+            <output id="stagePlayResult" class="result" style="flex:1; font-size:11px;"></output>
+            <div style="display:flex; gap:var(--sp-sm);">
+              <button type="button" id="stagePlaySelectAllBtn" class="small">Select all</button>
+              <button type="button" id="stageStopAllSoundBtn" class="small danger">■ Stop all</button>
+              <button type="button" id="stagePlayAllSoundBtn" class="primary">▶ Play all</button>
+            </div>
+          </div>
+        </article>
+      </div>
+
+    </section>
+
+  </main>
+</div>
+
+<script>
+function setResult(el, ok, msg) {
+  el.classList.remove("ok", "err");
+  el.classList.add(ok ? "ok" : "err");
+  el.textContent = msg;
+}
+function gather(section) {
+  return [...document.querySelectorAll(`.acc-check[data-section="${section}"]:checked`)].map(c => c.value);
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+// ── Saved stage channels ──────────────────────────────────────────────
+async function loadScList() {
+  const list = document.getElementById("scList");
+  const r = await fetch("/api/stage/channels");
+  const data = await r.json();
+  if (!data.length) {
+    list.innerHTML = '<span class="muted" style="font-size:11px;letter-spacing:.15em;text-transform:uppercase">No saved channels</span>';
+    return;
+  }
+  list.innerHTML = data.map(ch => `
+    <div class="vc-item" data-guild="${escapeHtml(ch.guild_id)}" data-channel="${escapeHtml(ch.channel_id)}" style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:var(--sp-sm);background:var(--black);border:1px solid var(--border);border-radius:2px;padding:var(--sp-sm) var(--sp-md);cursor:pointer;">
+      <div>
+        <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-display)">${escapeHtml(ch.label)}</div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-disabled);letter-spacing:.08em">${escapeHtml(ch.channel_id)}</div>
+      </div>
+      <button type="button" class="small danger sc-del" data-id="${escapeHtml(ch.id)}" title="Delete">×</button>
+    </div>
+  `).join("");
+
+  list.querySelectorAll(".vc-item").forEach(item => {
+    item.addEventListener("click", (e) => {
+      if (e.target.classList.contains("sc-del")) return;
+      document.getElementById("stageGuildId").value = item.dataset.guild;
+      document.getElementById("stageChannelId").value = item.dataset.channel;
+      item.style.borderColor = "var(--success)";
+      setTimeout(() => item.style.borderColor = "", 800);
+    });
+  });
+
+  list.querySelectorAll(".sc-del").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm("Delete this channel?")) return;
+      const r = await fetch(`/api/stage/channels/${btn.dataset.id}`, { method: "DELETE" });
+      if (r.ok) loadScList();
+    });
+  });
+}
+
+document.getElementById("scSaveForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const out = document.getElementById("scResult");
+  const guild_id = document.getElementById("stageGuildId").value.trim();
+  const channel_id = document.getElementById("stageChannelId").value.trim();
+  const label = document.getElementById("scLabel").value.trim();
+  if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild + Channel ID first");
+  const r = await fetch("/api/stage/channels", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ guild_id, channel_id, label }),
+  });
+  if (r.ok) {
+    setResult(out, true, "Saved");
+    document.getElementById("scLabel").value = "";
+    loadScList();
+  } else {
+    setResult(out, false, `Error ${r.status}`);
+  }
+});
+
+loadScList();
+
+// ── Start / End stage ────────────────────────────────────────────────
+document.getElementById("startStageBtn").addEventListener("click", async () => {
+  const out = document.getElementById("startStageResult");
+  const account_id = document.getElementById("startStageAccount").value;
+  const guild_id = document.getElementById("stageGuildId").value.trim();
+  const channel_id = document.getElementById("stageChannelId").value.trim();
+  const topic = document.getElementById("stageTopic").value.trim();
+  if (!account_id) return setResult(out, false, "Select an account");
+  if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild ID and Channel ID");
+  if (!topic) return setResult(out, false, "Enter a topic");
+  setResult(out, true, "Starting…");
+  const r = await fetch("/api/stage/start", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_id, guild_id, channel_id, topic }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (r.ok && data.ok) setResult(out, true, `▶ Stage started · ${data.speaker ? "speaker ✓" : "speaker failed"}`);
+  else setResult(out, false, data.body?.message || data.error || `Error ${r.status}`);
+});
+
+document.getElementById("endStageBtn").addEventListener("click", async () => {
+  const out = document.getElementById("startStageResult");
+  const account_id = document.getElementById("startStageAccount").value;
+  const guild_id = document.getElementById("stageGuildId").value.trim();
+  const channel_id = document.getElementById("stageChannelId").value.trim();
+  if (!account_id) return setResult(out, false, "Select an account");
+  if (!channel_id) return setResult(out, false, "Fill Channel ID");
+  setResult(out, true, "Ending…");
+  const r = await fetch("/api/stage/end", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_id, guild_id, channel_id, topic: "" }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (r.ok && data.ok) setResult(out, true, "Stage ended");
+  else setResult(out, false, data.body || data.error || `Error ${r.status}`);
+});
+
+// ── Request to speak ──────────────────────────────────────────────────
+async function sendSpeakRequest(request) {
+  const out = document.getElementById("speakResult");
+  const account_id = document.getElementById("speakAccountSelect").value;
+  const guild_id = document.getElementById("stageGuildId").value.trim();
+  const channel_id = document.getElementById("stageChannelId").value.trim();
+  if (!account_id) return setResult(out, false, "Select an account");
+  if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild ID and Channel ID");
+  setResult(out, true, request ? "Requesting…" : "Withdrawing…");
+  const r = await fetch("/api/stage/request-speak", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_id, guild_id, channel_id, request }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (r.ok && data.ok) setResult(out, true, request ? "🎤 Request sent" : "Withdrawn");
+  else setResult(out, false, data.body || data.error || `Error ${r.status}`);
+}
+
+document.getElementById("requestSpeakBtn").addEventListener("click", () => sendSpeakRequest(true));
+document.getElementById("withdrawSpeakBtn").addEventListener("click", () => sendSpeakRequest(false));
+
+// ── Connect / Leave ───────────────────────────────────────────────────
+document.getElementById("stageSelectAllBtn").addEventListener("click", () => {
+  document.querySelectorAll('.acc-check[data-section="stage"]:not(:disabled)').forEach(c => c.checked = true);
+});
+
+document.getElementById("stageJoinBtn").addEventListener("click", async () => {
+  const out = document.getElementById("stageResult");
+  const ids = gather("stage");
+  const guild_id = document.getElementById("stageGuildId").value.trim();
+  const channel_id = document.getElementById("stageChannelId").value.trim();
+  const delay_min = parseFloat(document.getElementById("delayMin").value) || 0;
+  const delay_max = parseFloat(document.getElementById("delayMax").value) || 0;
+  if (!ids.length) return setResult(out, false, "Select at least one account");
+  if (!guild_id || !channel_id) return setResult(out, false, "Guild + Channel id required");
+  setResult(out, true, `Connecting ${ids.length}…`);
+  const r = await fetch("/api/stage/join", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_ids: ids, guild_id, channel_id, delay_min, delay_max }),
+  });
+  const data = await r.json();
+  if (!r.ok) return setResult(out, false, `Error ${r.status}`);
+  const ok = data.results.filter(x => x.ok).length;
+  setResult(out, ok > 0, `${ok}/${data.results.length} connected`);
+  if (ok > 0) setTimeout(() => location.reload(), 800);
+});
+
+document.getElementById("stageLeaveBtn").addEventListener("click", async () => {
+  const out = document.getElementById("stageResult");
+  const ids = gather("stage");
+  if (!ids.length) return setResult(out, false, "Select at least one account");
+  setResult(out, true, `Leaving ${ids.length}…`);
+  const r = await fetch("/api/stage/leave", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_ids: ids }),
+  });
+  const data = await r.json();
+  if (!r.ok) return setResult(out, false, `Error ${r.status}`);
+  const ok = data.results.filter(x => x.ok).length;
+  setResult(out, ok > 0, `${ok}/${data.results.length} left`);
+  if (ok > 0) setTimeout(() => location.reload(), 800);
+});
+// ── Stage audio player ────────────────────────────────────────────────
+(async () => {
+  const trackSelects = document.querySelectorAll(".stage-play-track");
+  if (!trackSelects.length) return;
+  try {
+    const r = await fetch("/api/voice/sounds");
+    const files = await r.json();
+    const opts = files.length
+      ? '<option value="">— track —</option>' + files.map(f => `<option value="${f}">${f}</option>`).join("")
+      : '<option value="">No sounds found</option>';
+    trackSelects.forEach(sel => sel.innerHTML = opts);
+  } catch {
+    trackSelects.forEach(sel => sel.innerHTML = '<option value="">Error loading</option>');
+  }
+})();
+
+document.getElementById("stagePlaySelectAllBtn").addEventListener("click", () => {
+  document.querySelectorAll(".stage-play-check").forEach(c => c.checked = true);
+});
+
+document.getElementById("stagePlayAllSoundBtn").addEventListener("click", async () => {
+  const out = document.getElementById("stagePlayResult");
+  const guild_id = document.getElementById("stageGuildId").value.trim();
+  const channel_id = document.getElementById("stageChannelId").value.trim();
+  if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild ID and Channel ID");
+
+  const jobs = [...document.querySelectorAll(".stage-play-check:checked")].map(cb => {
+    const row = cb.closest(".stage-play-row");
+    const sound_file = row.querySelector(".stage-play-track").value;
+    return { account_id: cb.value, sound_file };
+  }).filter(j => j.sound_file);
+
+  if (!jobs.length) return setResult(out, false, "Select accounts and assign tracks");
+  setResult(out, true, `Connecting ${jobs.length}…`);
+
+  const results = await Promise.all(jobs.map(j =>
+    fetch("/api/stage/play", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id: j.account_id, guild_id, channel_id, sound_file: j.sound_file }),
+    }).then(r => r.json()).catch(() => ({ ok: false }))
+  ));
+
+  const ok = results.filter(r => r.ok).length;
+  const speakers = results.filter(r => r.speaker).length;
+  setResult(out, ok > 0, `▶ ${ok}/${results.length} playing · ${speakers} as speaker`);
+});
+
+document.getElementById("stageStopAllSoundBtn").addEventListener("click", async () => {
+  const out = document.getElementById("stagePlayResult");
+  const checked = [...document.querySelectorAll(".stage-play-check:checked")].map(c => c.value);
+  if (!checked.length) return setResult(out, false, "Select accounts to stop");
+  await Promise.all(checked.map(account_id =>
+    fetch("/api/stage/stop-play", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id }),
+    })
+  ));
+  setResult(out, true, `■ Stopped ${checked.length}`);
+});
+</script>
+{% endblock %}

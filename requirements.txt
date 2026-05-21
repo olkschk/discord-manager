@@ -14,8 +14,9 @@ aiohttp==3.10.10
 aiohttp-socks==0.9.0
 curl-cffi==0.7.4
 pyotp==2.9.0
-discord.py-self>=2.1.0
+discord.py-self @ git+https://github.com/dolfies/discord.py-self.git
 PyNaCl>=1.4.0
+davey>=0.1.5
 anthropic==0.97.0
 openai==1.54.3
 python-dotenv==1.0.1

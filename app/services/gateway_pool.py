@@ -150,6 +150,26 @@ async def join_voice(
     return True
 
 
+async def join_stage(
+    account_id: str, guild_id: str, channel_id: str
+) -> bool:
+    conn = await get_or_create(account_id)
+    if conn is None:
+        return False
+    await conn.join_stage(guild_id, channel_id)
+    await discords().update_one(
+        {"_id": ObjectId(account_id)},
+        {
+            "$set": {
+                "joined_voice": True,
+                "voice_guild_id": guild_id,
+                "voice_channel_id": channel_id,
+            }
+        },
+    )
+    return True
+
+
 async def leave_voice(account_id: str) -> bool:
     conn = _connections.get(account_id)
     if conn is not None:

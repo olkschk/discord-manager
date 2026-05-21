@@ -58,6 +58,29 @@ async def dashboard(
     )
 
 
+@router.get("/stage", response_class=HTMLResponse)
+async def stage_page(
+    request: Request,
+    user: str = Depends(require_login),
+) -> HTMLResponse:
+    accounts: list[dict] = []
+    async for acc in discords().find({"owner": user, "token_valid": True, "joined_server": True}).sort("_id", -1):
+        accounts.append(
+            {
+                "id": str(acc["_id"]),
+                "email": acc["email"],
+                "username": acc.get("username") or acc["email"],
+                "joined_voice": acc.get("joined_voice", False),
+                "voice_channel_id": acc.get("voice_channel_id"),
+            }
+        )
+    return templates.TemplateResponse(
+        request,
+        "stage.html",
+        {"user": user, "active": "stage", "accounts": accounts},
+    )
+
+
 @router.get("/voice", response_class=HTMLResponse)
 async def voice_page(
     request: Request,

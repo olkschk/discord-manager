@@ -91,32 +91,32 @@
       <div>
         <div class="section__head">
           <span class="section__title">Audio player</span>
-          <span class="section__sub">Play sound in voice channel</span>
+          <span class="section__sub">Play sounds simultaneously</span>
         </div>
-        <article class="panel" style="gap:var(--sp-md);">
-          <p class="panel__hint">Account connects to the selected voice channel and plays the sound. Requires FFmpeg.</p>
+        <article class="panel" style="gap:var(--sp-sm);">
+          <p class="panel__hint">Select accounts and assign a track to each. All start simultaneously. Requires FFmpeg.</p>
 
-          <label>
-            <span>Sound file</span>
-            <select id="soundFileSelect">
-              <option value="">Loading sounds…</option>
-            </select>
-          </label>
+          <div class="rowlist" id="playAccountList">
+            {% for a in accounts %}
+            <div class="rowlist__row play-row" data-id="{{ a.id }}" style="gap:var(--sp-sm);">
+              <input type="checkbox" class="play-check" value="{{ a.id }}" />
+              <span class="rowlist__primary" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ a.email }}">{{ a.username }}</span>
+              <select class="play-track" style="width:140px; font-size:11px;">
+                <option value="">— track —</option>
+              </select>
+            </div>
+            {% else %}
+            <p class="muted" style="padding:var(--sp-sm)">No accounts on server yet.</p>
+            {% endfor %}
+          </div>
 
-          <label>
-            <span>Account (joined server)</span>
-            <select id="playAccountSelect">
-              <option value="">Select account…</option>
-              {% for a in accounts %}
-              <option value="{{ a.id }}" data-email="{{ a.email }}">{{ a.username }} ({{ a.email }})</option>
-              {% endfor %}
-            </select>
-          </label>
-
-          <div style="display:flex; gap:var(--sp-sm); align-items:center;">
-            <output id="playResult" class="result" style="flex:1;"></output>
-            <button type="button" id="stopSoundBtn" class="small danger">Stop</button>
-            <button type="button" id="playSoundBtn" class="primary">▶ Play</button>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:var(--sp-xs);">
+            <output id="playResult" class="result" style="flex:1; font-size:11px;"></output>
+            <div style="display:flex; gap:var(--sp-sm);">
+              <button type="button" id="playSelectAllBtn" class="small">Select all</button>
+              <button type="button" id="stopAllSoundBtn" class="small danger">■ Stop all</button>
+              <button type="button" id="playAllSoundBtn" class="primary">▶ Play all</button>
+            </div>
           </div>
         </article>
       </div>
@@ -270,49 +270,63 @@ document.getElementById("stopStreamBtn").addEventListener("click", async () => {
 
 // ── Audio player ──────────────────────────────────────────────────
 (async () => {
-  const sel = document.getElementById("soundFileSelect");
+  const trackSelects = document.querySelectorAll(".play-track");
+  if (!trackSelects.length) return;
   try {
     const r = await fetch("/api/voice/sounds");
     const files = await r.json();
-    if (!files.length) {
-      sel.innerHTML = '<option value="">No sounds found in sounds/ folder</option>';
-    } else {
-      sel.innerHTML = '<option value="">Select sound…</option>' +
-        files.map(f => `<option value="${f}">${f}</option>`).join("");
-    }
-  } catch { sel.innerHTML = '<option value="">Error loading sounds</option>'; }
+    const opts = files.length
+      ? '<option value="">— track —</option>' + files.map(f => `<option value="${f}">${f}</option>`).join("")
+      : '<option value="">No sounds found</option>';
+    trackSelects.forEach(sel => sel.innerHTML = opts);
+  } catch {
+    trackSelects.forEach(sel => sel.innerHTML = '<option value="">Error loading sounds</option>');
+  }
 })();
 
-document.getElementById("playSoundBtn").addEventListener("click", async () => {
-  const out = document.getElementById("playResult");
-  const sound_file = document.getElementById("soundFileSelect").value;
-  const account_id = document.getElementById("playAccountSelect").value;
-  const guild_id = document.getElementById("voiceGuildId").value.trim();
-  const channel_id = document.getElementById("voiceChannelId").value.trim();
-  if (!sound_file) return setResult(out, false, "Select a sound file");
-  if (!account_id) return setResult(out, false, "Select an account");
-  if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild ID and Channel ID");
-  setResult(out, true, "Connecting and playing…");
-  const r = await fetch("/api/voice/play", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ account_id, guild_id, channel_id, sound_file }),
-  });
-  const data = await r.json().catch(() => ({}));
-  if (r.ok && data.ok) setResult(out, true, `▶ Playing: ${data.playing}`);
-  else setResult(out, false, data.error || `Error ${r.status}`);
+document.getElementById("playSelectAllBtn").addEventListener("click", () => {
+  document.querySelectorAll(".play-check").forEach(c => c.checked = true);
 });
 
-document.getElementById("stopSoundBtn").addEventListener("click", async () => {
+document.getElementById("playAllSoundBtn").addEventListener("click", async () => {
   const out = document.getElementById("playResult");
-  const account_id = document.getElementById("playAccountSelect").value;
-  if (!account_id) return;
-  await fetch("/api/voice/stop", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ account_id }),
-  });
-  setResult(out, true, "Stopped");
+  const guild_id = document.getElementById("voiceGuildId").value.trim();
+  const channel_id = document.getElementById("voiceChannelId").value.trim();
+  if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild ID and Channel ID");
+
+  const jobs = [...document.querySelectorAll(".play-check:checked")].map(cb => {
+    const row = cb.closest(".play-row");
+    const sound_file = row.querySelector(".play-track").value;
+    return { account_id: cb.value, sound_file };
+  }).filter(j => j.sound_file);
+
+  if (!jobs.length) return setResult(out, false, "Select accounts and assign tracks");
+  setResult(out, true, `Starting ${jobs.length}…`);
+
+  const results = await Promise.all(jobs.map(j =>
+    fetch("/api/voice/play", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id: j.account_id, guild_id, channel_id, sound_file: j.sound_file }),
+    }).then(r => r.json()).catch(() => ({ ok: false }))
+  ));
+
+  const ok = results.filter(r => r.ok).length;
+  setResult(out, ok > 0, `▶ ${ok}/${results.length} playing`);
+});
+
+document.getElementById("stopAllSoundBtn").addEventListener("click", async () => {
+  const out = document.getElementById("playResult");
+  const checked = [...document.querySelectorAll(".play-check:checked")].map(c => c.value);
+  if (!checked.length) return setResult(out, false, "Select accounts to stop");
+  await Promise.all(checked.map(account_id =>
+    fetch("/api/voice/stop", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id }),
+    })
+  ));
+  setResult(out, true, `■ Stopped ${checked.length}`);
 });
 
 // ── Connect / Leave ───────────────────────────────────────────────
