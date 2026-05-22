@@ -33,6 +33,21 @@ PROVIDER_HOSTS: dict[str, tuple[str, int]] = {
     "ro.ru": ("imap.rambler.ru", 993),
     "rambler.com": ("imap.rambler.ru", 993),
     "rambler.org": ("imap.rambler.ru", 993),
+    # mail.com family — all share imap.mail.com
+    "mail.com": ("imap.mail.com", 993),
+    "email.com": ("imap.mail.com", 993),
+    "mail.de": ("imap.mail.com", 993),
+    "mail2you.com": ("imap.mail.com", 993),
+    # GMX family — all share imap.gmx.com
+    "gmx.com": ("imap.gmx.com", 993),
+    "gmx.net": ("imap.gmx.com", 993),
+    "gmx.de": ("imap.gmx.com", 993),
+    "gmx.at": ("imap.gmx.com", 993),
+    "gmx.ch": ("imap.gmx.com", 993),
+    "gmx.us": ("imap.gmx.com", 993),
+    "gmx.co.uk": ("imap.gmx.com", 993),
+    # FirstMail
+    "firstmail.ltd": ("mail.firstmail.ltd", 993),
 }
 
 # Code-extraction patterns. Run in order; first match wins.
