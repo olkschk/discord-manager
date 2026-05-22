@@ -46,8 +46,27 @@ PROVIDER_HOSTS: dict[str, tuple[str, int]] = {
     "gmx.ch": ("imap.gmx.com", 993),
     "gmx.us": ("imap.gmx.com", 993),
     "gmx.co.uk": ("imap.gmx.com", 993),
-    # FirstMail
+    # Microsoft family — all share outlook.office365.com
+    "outlook.com": ("outlook.office365.com", 993),
+    "hotmail.com": ("outlook.office365.com", 993),
+    "live.com": ("outlook.office365.com", 993),
+    "msn.com": ("outlook.office365.com", 993),
+    # frontomrsmail.ru
+    "frontomrsmail.ru": ("mail.frontomrsmail.ru", 993),
+    # FirstMail family — all share mail.firstmail.ltd
     "firstmail.ltd": ("mail.firstmail.ltd", 993),
+    "difficilemail.com": ("mail.firstmail.ltd", 993),
+    "zweicpsu.com": ("mail.firstmail.ltd", 993),
+    "ttattdo.com": ("mail.firstmail.ltd", 993),
+    "sedigatcha.com": ("mail.firstmail.ltd", 993),
+    "sungeingor.com": ("mail.firstmail.ltd", 993),
+    "adventpask.com": ("mail.firstmail.ltd", 993),
+    "satinonl.com": ("mail.firstmail.ltd", 993),
+    "zzzzflaine.com": ("mail.firstmail.ltd", 993),
+    "tukiunge.com": ("mail.firstmail.ltd", 993),
+    "tcberck.com": ("mail.firstmail.ltd", 993),
+    "thatonsko.com": ("mail.firstmail.ltd", 993),
+    "wahpanjim.com": ("mail.firstmail.ltd", 993),
 }
 
 # Code-extraction patterns. Run in order; first match wins.
