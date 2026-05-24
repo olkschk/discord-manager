@@ -1,10 +1,15 @@
 """Discord account model + multi-add line parser."""
 from __future__ import annotations
 
+import re
+
 from bson import ObjectId
 from pydantic import BaseModel, EmailStr, Field
 
 from app.models.common import MONGO_MODEL_CONFIG, PyObjectId
+
+# Minimal email sanity check: must have exactly one @, a domain, and a TLD.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class DiscordAccount(BaseModel):
@@ -31,7 +36,10 @@ class DiscordAccount(BaseModel):
 
 
 def parse_account_line(line: str) -> tuple[str, str, str] | None:
-    """Parse one `mail:pass:token` line. Returns (email, password, token) or None."""
+    """Parse one `email:pass:token` line. Returns (email, password, token) or None.
+
+    Rejects lines that look like proxy format (no @ in the email position).
+    """
     line = line.strip()
     if not line:
         return None
@@ -40,5 +48,8 @@ def parse_account_line(line: str) -> tuple[str, str, str] | None:
         return None
     email, password, token = (p.strip() for p in parts)
     if not email or not password or not token:
+        return None
+    # Must look like a real email — rejects IPs like 1.2.3.4 or plain strings
+    if not _EMAIL_RE.match(email):
         return None
     return email, password, token

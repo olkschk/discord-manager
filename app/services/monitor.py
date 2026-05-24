@@ -243,11 +243,12 @@ async def _dm_loop() -> None:
 
 # ── Scheduled message sender ─────────────────────────────────────────────────
 async def _scheduler_cycle() -> None:
+    import random
     from datetime import datetime, timezone
     from bson import ObjectId
     from app.database import db as _db
     from app.services.account_helpers import load_account_token_and_proxy
-    from app.services.discord_api import send_message
+    from app.services.discord_api import send_message, trigger_typing
 
     now = datetime.now(timezone.utc)
     coll = _db()["scheduled_messages"]
@@ -259,8 +260,15 @@ async def _scheduler_cycle() -> None:
             await coll.update_one({"_id": task["_id"]}, {"$set": {"status": "failed", "error": "unreadable"}})
             continue
         _, token, proxy_url = resolved
+
+        # Typing simulation before the scheduled send
+        content = task["content"]
+        typing_delay = max(1.5, min(8.0, len(content) * 0.07)) * random.uniform(0.8, 1.2)
+        await trigger_typing(token, task["channel_id"], proxy_url=proxy_url)
+        await asyncio.sleep(typing_delay)
+
         msg = await send_message(
-            token, task["channel_id"], task["content"],
+            token, task["channel_id"], content,
             reply_to=task.get("reply_to"), proxy_url=proxy_url,
         )
         if msg:

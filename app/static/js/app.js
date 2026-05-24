@@ -24,7 +24,9 @@ function bindAddForm(formId, resultId, url, label) {
     asResult(result, true, "…");
     const r = await postForm(url, fd);
     if (!r.ok) {
-      asResult(result, false, `Error ${r.status}`);
+      // Show the server's detail message when available (e.g. wrong-format warning)
+      const detail = r.data?.detail ?? `Error ${r.status}`;
+      asResult(result, false, detail);
       return;
     }
     const { added = 0, skipped = 0, errors = [] } = r.data;

@@ -27,6 +27,18 @@ GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json"
 # Module-level task reference
 _task: asyncio.Task | None = None
 
+# ── Topic reload signal ───────────────────────────────────────────────────────
+# Set by notify_topics_changed(); cleared inside the WS loop on next message.
+_reload_event: asyncio.Event | None = None
+
+
+def notify_topics_changed() -> None:
+    """Signal the running listener to reload its topic set from DB.
+    Safe to call from any async context (same event loop)."""
+    if _reload_event is not None:
+        _reload_event.set()
+
+
 # ── Pub/sub for SSE clients ───────────────────────────────────────────────────
 # channel_id -> set of asyncio.Queue, one per connected browser tab
 from collections import defaultdict  # noqa: E402
@@ -146,9 +158,42 @@ def _parse_ts(ts: str | None) -> datetime:
         return datetime.now(timezone.utc)
 
 
+async def backfill_channel(
+    channel_id: str,
+    token: str,
+    proxy_url: str | None = None,
+) -> int:
+    """Fetch last 100 messages from Discord REST and persist to the DB.
+
+    Designed to run as a background task when a topic is first added.
+    Returns the number of messages saved. Best-effort — never raises.
+    """
+    from app.services.discord_api import get_channel_messages  # local import avoids circular
+
+    raw = await get_channel_messages(token, channel_id, limit=100, proxy_url=proxy_url)
+    if not raw:
+        logger.info("backfill %s: no messages returned", channel_id)
+        return 0
+
+    count = 0
+    for data in raw:
+        try:
+            await _save_message(data, channel_id)
+            count += 1
+        except Exception as exc:
+            logger.warning("backfill %s: skipping message %s — %s", channel_id, data.get("id"), exc)
+
+    logger.info("backfill %s: saved %d / %d messages", channel_id, count, len(raw))
+    return count
+
+
 async def _run_listener() -> None:
     """Main gateway loop — reconnects on error."""
+    global _reload_event
     settings = get_settings()
+
+    # Create the reload event once inside the running loop
+    _reload_event = asyncio.Event()
 
     while True:
         try:
@@ -204,6 +249,16 @@ async def _run_listener() -> None:
                         op = payload.get("op")
                         if payload.get("s"):
                             last_seq = payload["s"]
+
+                        # Reload topic set if monitor router signaled a change
+                        if _reload_event is not None and _reload_event.is_set():
+                            _reload_event.clear()
+                            async for t in topics().find():
+                                topic_ids.add(str(t["channel_id"]))
+                            logger.info(
+                                "topic_listener: topic set refreshed → watching %d channels",
+                                len(topic_ids),
+                            )
 
                         if op == 10:  # HELLO
                             interval = payload["d"]["heartbeat_interval"] / 1000

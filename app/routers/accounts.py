@@ -36,7 +36,19 @@ async def add_accounts(
     payload: str = Form(...),
     user: str = Depends(require_login),
 ) -> dict:
-    """Multi-add. Body field `payload` contains one `mail:pass:token` per line."""
+    """Multi-add. Body field `payload` contains one `email:pass:token` per line."""
+    # Early sanity check: if the first non-empty line has no '@' in the email
+    # position, the user likely pasted proxy lines by mistake.
+    first = next((l.strip() for l in payload.splitlines() if l.strip()), "")
+    if first:
+        first_segment = first.split(":")[0]
+        if "@" not in first_segment:
+            # Looks like ip:port:... or plain non-email text
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Выглядит как прокси-строки (ip:port:...) — вставь их в раздел Proxies",
+            )
+
     added, skipped = 0, 0
     errors: list[str] = []
 

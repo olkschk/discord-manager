@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Form
+from fastapi import APIRouter, Depends, Form, HTTPException, status
 from pymongo.errors import DuplicateKeyError
 
 from app.database import proxies as proxies_coll
@@ -24,6 +24,18 @@ async def add_proxies(
     user: str = Depends(require_login),
 ) -> dict:
     """Multi-add. Accepts `ip:port:login:pass` or `login:pass@ip:port` per line."""
+    # Early sanity check: if the first non-empty line has '@' in its first
+    # colon-segment, the user likely pasted account lines by mistake.
+    # (Proxy @ format is  login:pass@ip:port  — the @ is NOT in segment 0.)
+    first = next((l.strip() for l in payload.splitlines() if l.strip()), "")
+    if first:
+        first_segment = first.split(":")[0]
+        if "@" in first_segment:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Выглядит как строки аккаунтов (email@...) — вставь их в раздел Accounts",
+            )
+
     added, skipped = 0, 0
     errors: list[str] = []
 

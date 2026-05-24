@@ -1,13 +1,18 @@
 """Monitor configuration: topics CRUD + donor selection + status snapshot."""
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from pymongo.errors import DuplicateKeyError
 
-from app.database import chat_channels, discords, topics
-from app.security import require_login
+from app.database import chat_channels, discords, proxies as proxies_coll, topics
+from app.security import decrypt, require_login
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/monitor",
@@ -19,6 +24,39 @@ router = APIRouter(
 class TopicBody(BaseModel):
     channel_id: str = Field(..., min_length=1)
     label: str | None = None
+
+
+async def _backfill_task(channel_id: str, owner: str) -> None:
+    """Background task: fetch last 100 messages for a newly added topic channel."""
+    from app.services.discord_api import build_proxy_url
+    from app.services.topic_listener import backfill_channel
+
+    # Prefer the donor account; fall back to any valid account for this owner
+    donor = await discords().find_one({"owner": owner, "is_donor": True, "token_valid": True})
+    if donor is None:
+        donor = await discords().find_one({"owner": owner, "token_valid": True})
+    if donor is None:
+        logger.info("backfill %s: no usable account for owner %s", channel_id, owner)
+        return
+
+    try:
+        token = decrypt(donor["discord_token"])
+    except ValueError:
+        logger.warning("backfill %s: could not decrypt token", channel_id)
+        return
+
+    proxy_url: str | None = None
+    if donor.get("proxy_id"):
+        proxy = await proxies_coll().find_one({"_id": donor["proxy_id"]})
+        if proxy:
+            try:
+                proxy_url = build_proxy_url(
+                    proxy["ip"], proxy["port"], proxy["login"], decrypt(proxy["password"])
+                )
+            except (ValueError, KeyError):
+                pass
+
+    await backfill_channel(channel_id, token, proxy_url)
 
 
 @router.get("/topics")
@@ -34,6 +72,8 @@ async def add_topic(
     body: TopicBody,
     user: str = Depends(require_login),
 ) -> dict:
+    from app.services.topic_listener import notify_topics_changed
+
     channel_id = body.channel_id.strip()
     label = body.label
     try:
@@ -49,6 +89,12 @@ async def add_topic(
             "channel_id": channel_id,
             "label": label or channel_id,
         })
+
+    # Signal gateway listener to start watching this channel immediately
+    notify_topics_changed()
+
+    # Backfill last 100 messages in the background (non-blocking)
+    asyncio.create_task(_backfill_task(channel_id, user))
 
     return {"id": str(res.inserted_id), "channel_id": channel_id, "label": label}
 

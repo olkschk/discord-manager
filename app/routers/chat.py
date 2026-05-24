@@ -16,9 +16,32 @@ from pydantic import BaseModel, Field
 from app.database import chat_channels, messages as messages_coll, private_messages as private_messages_coll
 from app.security import require_login
 from app.services.account_helpers import load_account_token_and_proxy
-from app.services.discord_api import add_reaction, get_or_create_dm_channel, send_message, send_message_with_files
+from app.services.discord_api import add_reaction, get_or_create_dm_channel, send_message, send_message_with_files, trigger_typing
 
 MAX_FILE_BYTES = 8 * 1024 * 1024  # Discord non-Nitro limit
+
+
+async def _send_with_typing(
+    token: str,
+    channel_id: str,
+    content: str,
+    *,
+    reply_to: str | None = None,
+    proxy_url: str | None = None,
+) -> dict | None:
+    """Trigger '<user> is typing...' for a human-like delay, then send the message.
+
+    Delay formula: 0.07 s per character, clamped to [1.5, 8.0] s, with ±20% random
+    jitter — matches a real person typing at roughly 40–80 WPM.
+    """
+    base = max(1.5, min(8.0, len(content) * 0.07))
+    delay = base * random.uniform(0.8, 1.2)
+
+    await trigger_typing(token, channel_id, proxy_url=proxy_url)
+    await asyncio.sleep(delay)
+
+    return await send_message(token, channel_id, content, reply_to=reply_to, proxy_url=proxy_url)
+
 
 router = APIRouter(
     prefix="/api/chat",
@@ -42,7 +65,9 @@ async def send(body: SendBody, user: str = Depends(require_login)) -> dict:
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
-    msg = await send_message(token, body.channel_id, body.content, reply_to=body.reply_to, proxy_url=proxy_url)
+    msg = await _send_with_typing(
+        token, body.channel_id, body.content, reply_to=body.reply_to, proxy_url=proxy_url
+    )
     if msg is None:
         return {"sent": False}
     return {"sent": True, "message_id": msg.get("id")}
@@ -62,12 +87,13 @@ async def duplicate(body: DuplicateBody, user: str = Depends(require_login)) -> 
     _, token, proxy_url = resolved
     results: list[dict] = []
     for i, cid in enumerate(body.channel_ids):
-        msg = await send_message(token, cid, body.content, proxy_url=proxy_url)
+        # Typing simulation per channel, then send
+        msg = await _send_with_typing(token, cid, body.content, proxy_url=proxy_url)
         ok = msg is not None
         results.append({"channel_id": cid, "ok": ok})
         if not ok:
             logger.warning("duplicate: failed to send to channel %s — skipping", cid)
-        # Random delay between sends (skip after last channel)
+        # Additional random pause between channels (skip after last)
         if i < len(body.channel_ids) - 1:
             await asyncio.sleep(random.uniform(3, 7))
     return {"results": results}
@@ -140,6 +166,12 @@ async def send_with_file(
         if len(blob) > MAX_FILE_BYTES:
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"{f.filename}: too large (max 8 MB)")
         blobs.append((f.filename or "file", blob, f.content_type))
+
+    # Show typing indicator before sending (1.5 s minimum for file-only uploads)
+    typing_base = max(1.5, min(8.0, len(content) * 0.07))
+    await trigger_typing(token, channel_id, proxy_url=proxy_url)
+    await asyncio.sleep(typing_base * random.uniform(0.8, 1.2))
+
     if not blobs:
         msg = await send_message(token, channel_id, content, reply_to=reply_to, proxy_url=proxy_url)
     else:

@@ -422,6 +422,67 @@ async def check_username(
         return {"taken": True, "error": str(exc)}
 
 
+async def trigger_typing(
+    token: str,
+    channel_id: str,
+    *,
+    proxy_url: str | None = None,
+) -> None:
+    """POST /channels/{channel_id}/typing — shows '<user> is typing...' in Discord.
+
+    The indicator expires after ~10 seconds. Call once before a short delay;
+    call periodically (every 8 s) for longer waits.
+    """
+    settings = get_settings()
+    url = f"{settings.discord_api_base}/channels/{channel_id}/typing"
+    timeout = ClientTimeout(total=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, headers=_headers(token), proxy=proxy_url) as resp:
+                if resp.status not in (200, 204):
+                    logger.debug("trigger_typing: channel=%s status=%d", channel_id, resp.status)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("trigger_typing: %s", exc)
+
+
+async def get_channel_messages(
+    token: str,
+    channel_id: str,
+    *,
+    limit: int = 100,
+    proxy_url: str | None = None,
+) -> list[dict]:
+    """GET /channels/{channel_id}/messages?limit={limit}.
+
+    Returns list of message dicts (newest-first as Discord returns them).
+    Returns [] on any error so callers can treat it as best-effort.
+    """
+    settings = get_settings()
+    url = f"{settings.discord_api_base}/channels/{channel_id}/messages"
+    timeout = ClientTimeout(total=settings.discord_http_timeout)
+    headers = _headers(token)
+    headers["Referer"] = f"https://discord.com/channels/@me/{channel_id}"
+
+    kwargs: dict = {
+        "headers": headers,
+        "timeout": timeout,
+        "params": {"limit": min(limit, 100)},
+    }
+    if proxy_url:
+        kwargs["proxy"] = proxy_url
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, **kwargs) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                logger.warning("get_channel_messages: channel %s returned HTTP %d", channel_id, resp.status)
+                return []
+    except (ClientError, TimeoutError, Exception) as exc:
+        logger.error("get_channel_messages error for channel %s: %s", channel_id, exc)
+        return []
+
+
 async def add_reaction(
     token: str,
     channel_id: str,
