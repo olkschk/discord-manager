@@ -6,65 +6,94 @@
 
   <main class="page" style="display:grid; grid-template-columns: 1fr 300px; gap: var(--sp-xl); align-items: start;">
 
-    <!-- Left: connection panel -->
-    <section>
-      <div class="section__head">
-        <span class="section__title">Voice connections</span>
-        <span class="section__sub">Gateway WS · appear in channel</span>
-      </div>
+    <!-- Left column: Voice connections + Watch stream -->
+    <div style="display:grid; gap: var(--sp-xl);">
 
-      <article class="panel">
-        <div class="split">
-          <label>
-            <span>Guild ID</span>
-            <input type="text" id="voiceGuildId" placeholder="123456789012345678" spellcheck="false" />
-          </label>
-          <label>
-            <span>Channel ID</span>
-            <input type="text" id="voiceChannelId" placeholder="123456789012345678" spellcheck="false" />
-          </label>
+      <!-- Voice connections -->
+      <section>
+        <div class="section__head">
+          <span class="section__title">Voice connections</span>
+          <span class="section__sub">Gateway WS · appear in channel</span>
         </div>
-
-        <div class="split">
-          <label>
-            <span>Delay min (s)</span>
-            <input type="number" id="delayMin" value="1" min="0" max="60" step="0.5" />
-          </label>
-          <label>
-            <span>Delay max (s)</span>
-            <input type="number" id="delayMax" value="4" min="0" max="60" step="0.5" />
-          </label>
-        </div>
-
-        <div class="rowlist" style="margin-top: var(--sp-md);">
-          {% for a in accounts %}
-          <label class="rowlist__row">
-            <input type="checkbox" class="acc-check" data-section="voice" value="{{ a.id }}" />
-            <span class="rowlist__primary">{{ a.email }}</span>
-            <span class="rowlist__meta">{{ a.username }}</span>
-            <span class="status {% if a.joined_voice %}ok{% else %}muted{% endif %}">
-              {{ "in voice" if a.joined_voice else "—" }}
-            </span>
-            <span class="rowlist__bio">{{ a.voice_channel_id or '' }}</span>
-          </label>
-          {% else %}
-          <p class="muted" style="padding:var(--sp-md)">No accounts on server yet.</p>
-          {% endfor %}
-        </div>
-
-        <div style="display:flex; justify-content:space-between; gap:var(--sp-md); margin-top:var(--sp-md);">
-          <output id="voiceResult" class="result"></output>
-          <div style="display:flex; gap:var(--sp-sm);">
-            <button type="button" id="voiceSelectAllBtn" class="small">Select all</button>
-            <button type="button" id="voiceLeaveBtn" class="small danger">Leave</button>
-            <button type="button" id="voiceJoinBtn" class="primary">Connect</button>
+        <article class="panel">
+          <div class="split">
+            <label>
+              <span>Guild ID</span>
+              <input type="text" id="voiceGuildId" placeholder="123456789012345678" spellcheck="false" />
+            </label>
+            <label>
+              <span>Channel ID</span>
+              <input type="text" id="voiceChannelId" placeholder="123456789012345678" spellcheck="false" />
+            </label>
           </div>
-        </div>
-      </article>
-    </section>
+          <div class="split">
+            <label>
+              <span>Delay min (s)</span>
+              <input type="number" id="delayMin" value="1" min="0" max="60" step="0.5" />
+            </label>
+            <label>
+              <span>Delay max (s)</span>
+              <input type="number" id="delayMax" value="4" min="0" max="60" step="0.5" />
+            </label>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:var(--sp-sm); padding:var(--sp-sm) var(--sp-md); background:var(--black); border:1px solid var(--border); border-radius:2px;">
+            <span style="font-size:11px; letter-spacing:.08em; color:var(--text-secondary);">
+              <span id="voiceCount">0</span><span style="color:var(--text-disabled);"> / {{ accounts|length }} accounts selected</span>
+            </span>
+            <button type="button" id="voicePickBtn" class="small">Pick accounts ↗</button>
+          </div>
+          <div style="display:flex; justify-content:space-between; gap:var(--sp-md); margin-top:var(--sp-sm);">
+            <output id="voiceResult" class="result"></output>
+            <div style="display:flex; gap:var(--sp-sm);">
+              <button type="button" id="voiceLeaveBtn" class="small danger">Leave</button>
+              <button type="button" id="voiceJoinBtn" class="primary">Connect</button>
+            </div>
+          </div>
+        </article>
+      </section>
 
-    <!-- Right: channel templates + audio player + stream watcher -->
-    <section style="display:grid; gap:var(--sp-xl); align-content:start;">
+      <!-- Watch stream -->
+      <section>
+        <div class="section__head">
+          <span class="section__title">Watch stream</span>
+          <span class="section__sub">Join Go Live as viewer</span>
+        </div>
+        <article class="panel">
+          <p class="panel__hint">Uses Guild / Channel ID from Voice connections above.</p>
+          <div class="split">
+            <label>
+              <span>Delay min (s)</span>
+              <input type="number" id="streamDelayMin" value="1" min="0" max="60" step="0.5" />
+            </label>
+            <label>
+              <span>Delay max (s)</span>
+              <input type="number" id="streamDelayMax" value="4" min="0" max="60" step="0.5" />
+            </label>
+          </div>
+          <label>
+            <span>Streamer User ID <span style="color:var(--text-disabled);">(optional)</span></span>
+            <input type="text" id="streamerUserId" placeholder="Discord snowflake ID of the streamer" spellcheck="false" />
+          </label>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:var(--sp-sm); padding:var(--sp-sm) var(--sp-md); background:var(--black); border:1px solid var(--border); border-radius:2px;">
+            <span style="font-size:11px; letter-spacing:.08em; color:var(--text-secondary);">
+              <span id="streamCount">0</span><span style="color:var(--text-disabled);"> / {{ accounts|length }} accounts selected</span>
+            </span>
+            <button type="button" id="streamPickBtn" class="small">Pick accounts ↗</button>
+          </div>
+          <div style="display:flex; justify-content:space-between; gap:var(--sp-md); margin-top:var(--sp-sm);">
+            <output id="streamResult" class="result"></output>
+            <div style="display:flex; gap:var(--sp-sm);">
+              <button type="button" id="stopStreamBtn" class="small danger">Stop</button>
+              <button type="button" id="watchStreamBtn" class="primary">👁 Watch</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+    </div>
+
+    <!-- Right column: Saved channels + Audio player -->
+    <section style="display:grid; gap: var(--sp-xl); align-content: start;">
 
       <!-- Saved channels -->
       <div>
@@ -94,14 +123,13 @@
           <span class="section__sub">Play sounds simultaneously</span>
         </div>
         <article class="panel" style="gap:var(--sp-sm);">
-          <p class="panel__hint">Select accounts and assign a track to each. All start simultaneously. Requires FFmpeg.</p>
-
+          <p class="panel__hint">Assign a track per account. All start simultaneously. Requires FFmpeg.</p>
           <div class="rowlist" id="playAccountList">
             {% for a in accounts %}
             <div class="rowlist__row play-row" data-id="{{ a.id }}" style="gap:var(--sp-sm);">
               <input type="checkbox" class="play-check" value="{{ a.id }}" />
               <span class="rowlist__primary" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ a.email }}">{{ a.username }}</span>
-              <select class="play-track" style="width:140px; font-size:11px;">
+              <select class="play-track" style="width:120px; font-size:11px;">
                 <option value="">— track —</option>
               </select>
             </div>
@@ -109,66 +137,145 @@
             <p class="muted" style="padding:var(--sp-sm)">No accounts on server yet.</p>
             {% endfor %}
           </div>
-
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:var(--sp-xs);">
             <output id="playResult" class="result" style="flex:1; font-size:11px;"></output>
             <div style="display:flex; gap:var(--sp-sm);">
               <button type="button" id="playSelectAllBtn" class="small">Select all</button>
-              <button type="button" id="stopAllSoundBtn" class="small danger">■ Stop all</button>
-              <button type="button" id="playAllSoundBtn" class="primary">▶ Play all</button>
+              <button type="button" id="stopAllSoundBtn" class="small danger">■ Stop</button>
+              <button type="button" id="playAllSoundBtn" class="primary">▶ Play</button>
             </div>
           </div>
         </article>
       </div>
 
-      <!-- Watch stream -->
-      <div>
-        <div class="section__head" style="flex-direction:column; align-items:flex-start; gap:2px;">
-          <span class="section__title">Watch stream</span>
-          <span class="section__sub">Join Go Live as viewer</span>
-        </div>
-        <article class="panel" style="gap:var(--sp-sm);">
-          <p class="panel__hint">Connects to voice + watches active Go Live. Uses Guild / Channel ID from the left panel.</p>
-          <label>
-            <span>Account</span>
-            <select id="streamAccountSelect">
-              <option value="">Select account…</option>
-              {% for a in accounts %}
-              <option value="{{ a.id }}">{{ a.username }} ({{ a.email }})</option>
-              {% endfor %}
-            </select>
-          </label>
-          <label>
-            <span>Streamer User ID <span style="color:var(--text-disabled);">(optional)</span></span>
-            <input type="text" id="streamerUserId" placeholder="Discord ID of the streamer" spellcheck="false" />
-          </label>
-          <div style="display:flex; gap:var(--sp-sm); align-items:center;">
-            <output id="streamResult" class="result" style="flex:1; font-size:11px;"></output>
-            <button type="button" id="stopStreamBtn" class="small danger">Stop</button>
-            <button type="button" id="watchStreamBtn" class="primary small">👁 Watch</button>
-          </div>
-        </article>
-      </div>
     </section>
-
   </main>
 </div>
 
+<!-- Shared account picker modal -->
+<div id="accountPickerModal" class="modal" hidden>
+  <div class="modal__panel" style="width:min(560px,95vw); max-height:80vh; display:flex; flex-direction:column;">
+    <header class="modal__head" style="flex-shrink:0;">
+      <h3 class="panel__title" id="pickerTitle">Select accounts</h3>
+      <button type="button" class="link" id="pickerClose">Close ×</button>
+    </header>
+
+    <!-- Quick-select bar -->
+    <div style="display:flex; align-items:center; gap:var(--sp-sm); padding:var(--sp-md) var(--sp-lg); border-bottom:1px solid var(--border); flex-shrink:0;">
+      <span style="font-size:11px; color:var(--text-secondary); letter-spacing:.08em; white-space:nowrap;">First</span>
+      <input type="number" id="quickSelectN" value="1" min="1" max="{{ accounts|length }}"
+             style="width:60px; font-family:var(--font-mono); font-size:12px;" />
+      <span style="font-size:11px; color:var(--text-secondary); letter-spacing:.08em; white-space:nowrap;">accounts</span>
+      <button type="button" id="quickSelectBtn" class="small">Select</button>
+      <div style="margin-left:auto; display:flex; gap:var(--sp-sm);">
+        <button type="button" id="pickerSelectAll" class="small">All</button>
+        <button type="button" id="pickerClearAll" class="small">Clear</button>
+      </div>
+    </div>
+
+    <!-- Account list -->
+    <div class="modal__body" style="overflow-y:auto; flex:1; padding:0;">
+      <div class="rowlist">
+        {% for a in accounts %}
+        <label class="rowlist__row" style="cursor:pointer;">
+          <input type="checkbox" class="picker-check" value="{{ a.id }}" />
+          <span class="rowlist__primary">{{ a.email }}</span>
+          <span class="rowlist__meta">{{ a.username }}</span>
+          <span class="status {% if a.joined_voice %}ok{% else %}muted{% endif %}">
+            {{ "in voice" if a.joined_voice else "—" }}
+          </span>
+          <span style="font-size:10px; color:var(--text-disabled); font-family:var(--font-mono);">{{ a.voice_channel_id or '' }}</span>
+        </label>
+        {% else %}
+        <p class="muted" style="padding:var(--sp-md)">No accounts on server yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <footer class="modal__foot" style="flex-shrink:0;">
+      <span id="pickerFooter" style="font-size:11px; color:var(--text-secondary);">
+        0 / {{ accounts|length }} selected
+      </span>
+      <button type="button" id="pickerConfirm" class="primary">Confirm</button>
+    </footer>
+  </div>
+</div>
+
 <script>
+const MAX_ACCOUNTS = {{ accounts|length }};
+
 function setResult(el, ok, msg) {
   el.classList.remove("ok", "err");
   el.classList.add(ok ? "ok" : "err");
   el.textContent = msg;
 }
-function gather(section) {
-  return [...document.querySelectorAll(`.acc-check[data-section="${section}"]:checked`)].map(c => c.value);
-}
 
-// ── Voice channel templates ───────────────────────────────────────
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  return String(s).replace(/[&<>"']/g,
+    c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 
+// ── Account picker state ─────────────────────────────────────────────────────
+let voiceSelection = new Set();   // account IDs for Voice connections
+let streamSelection = new Set();  // account IDs for Watch stream
+let currentTarget = null;         // 'voice' | 'stream'
+
+const pickerModal = document.getElementById("accountPickerModal");
+
+function openPicker(target) {
+  currentTarget = target;
+  const sel = target === "voice" ? voiceSelection : streamSelection;
+  document.getElementById("pickerTitle").textContent =
+    target === "voice" ? "Select accounts — Voice" : "Select accounts — Watch Stream";
+  document.querySelectorAll(".picker-check").forEach(cb => {
+    cb.checked = sel.has(cb.value);
+  });
+  updatePickerFooter();
+  pickerModal.hidden = false;
+}
+
+function updatePickerFooter() {
+  const n = [...document.querySelectorAll(".picker-check:checked")].length;
+  document.getElementById("pickerFooter").textContent = `${n} / ${MAX_ACCOUNTS} selected`;
+}
+
+document.getElementById("pickerClose").addEventListener("click", () => { pickerModal.hidden = true; });
+pickerModal.addEventListener("click", e => { if (e.target === pickerModal) pickerModal.hidden = true; });
+
+document.getElementById("pickerSelectAll").addEventListener("click", () => {
+  document.querySelectorAll(".picker-check").forEach(cb => cb.checked = true);
+  updatePickerFooter();
+});
+document.getElementById("pickerClearAll").addEventListener("click", () => {
+  document.querySelectorAll(".picker-check").forEach(cb => cb.checked = false);
+  updatePickerFooter();
+});
+document.querySelectorAll(".picker-check").forEach(cb =>
+  cb.addEventListener("change", updatePickerFooter)
+);
+
+document.getElementById("quickSelectBtn").addEventListener("click", () => {
+  const n = Math.max(0, parseInt(document.getElementById("quickSelectN").value) || 0);
+  document.querySelectorAll(".picker-check").forEach((cb, i) => cb.checked = i < n);
+  updatePickerFooter();
+});
+
+document.getElementById("pickerConfirm").addEventListener("click", () => {
+  const ids = [...document.querySelectorAll(".picker-check:checked")].map(cb => cb.value);
+  if (currentTarget === "voice") {
+    voiceSelection = new Set(ids);
+    document.getElementById("voiceCount").textContent = ids.length;
+  } else {
+    streamSelection = new Set(ids);
+    document.getElementById("streamCount").textContent = ids.length;
+  }
+  pickerModal.hidden = true;
+});
+
+document.getElementById("voicePickBtn").addEventListener("click", () => openPicker("voice"));
+document.getElementById("streamPickBtn").addEventListener("click", () => openPicker("stream"));
+
+// ── Saved voice channels ─────────────────────────────────────────────────────
 async function loadVcList() {
   const list = document.getElementById("vcList");
   const r = await fetch("/api/voice/channels");
@@ -178,7 +285,12 @@ async function loadVcList() {
     return;
   }
   list.innerHTML = data.map(ch => `
-    <div class="vc-item" data-guild="${escapeHtml(ch.guild_id)}" data-channel="${escapeHtml(ch.channel_id)}" style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:var(--sp-sm);background:var(--black);border:1px solid var(--border);border-radius:2px;padding:var(--sp-sm) var(--sp-md);cursor:pointer;">
+    <div class="vc-item"
+         data-guild="${escapeHtml(ch.guild_id)}"
+         data-channel="${escapeHtml(ch.channel_id)}"
+         style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:var(--sp-sm);
+                background:var(--black);border:1px solid var(--border);border-radius:2px;
+                padding:var(--sp-sm) var(--sp-md);cursor:pointer;">
       <div>
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-display)">${escapeHtml(ch.label)}</div>
         <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-disabled);letter-spacing:.08em">${escapeHtml(ch.channel_id)}</div>
@@ -188,18 +300,17 @@ async function loadVcList() {
   `).join("");
 
   list.querySelectorAll(".vc-item").forEach(item => {
-    item.addEventListener("click", (e) => {
+    item.addEventListener("click", e => {
       if (e.target.classList.contains("vc-del")) return;
       document.getElementById("voiceGuildId").value = item.dataset.guild;
       document.getElementById("voiceChannelId").value = item.dataset.channel;
-      // Visual feedback
       item.style.borderColor = "var(--success)";
       setTimeout(() => item.style.borderColor = "", 800);
     });
   });
 
   list.querySelectorAll(".vc-del").forEach(btn => {
-    btn.addEventListener("click", async (e) => {
+    btn.addEventListener("click", async e => {
       e.stopPropagation();
       if (!confirm("Delete this channel?")) return;
       const r = await fetch(`/api/voice/channels/${btn.dataset.id}`, { method: "DELETE" });
@@ -208,7 +319,7 @@ async function loadVcList() {
   });
 }
 
-document.getElementById("vcSaveForm").addEventListener("submit", async (e) => {
+document.getElementById("vcSaveForm").addEventListener("submit", async e => {
   e.preventDefault();
   const out = document.getElementById("vcResult");
   const guild_id = document.getElementById("voiceGuildId").value.trim();
@@ -231,44 +342,88 @@ document.getElementById("vcSaveForm").addEventListener("submit", async (e) => {
 
 loadVcList();
 
-// ── Stream watcher ────────────────────────────────────────────────
+// ── Voice connect / leave ────────────────────────────────────────────────────
+document.getElementById("voiceJoinBtn").addEventListener("click", async () => {
+  const out = document.getElementById("voiceResult");
+  const ids = [...voiceSelection];
+  const guild_id = document.getElementById("voiceGuildId").value.trim();
+  const channel_id = document.getElementById("voiceChannelId").value.trim();
+  const delay_min = parseFloat(document.getElementById("delayMin").value) || 0;
+  const delay_max = parseFloat(document.getElementById("delayMax").value) || 0;
+  if (!ids.length) return setResult(out, false, "Pick accounts first ↗");
+  if (!guild_id || !channel_id) return setResult(out, false, "Guild + Channel ID required");
+  setResult(out, true, `Connecting ${ids.length}…`);
+  const r = await fetch("/api/voice/join", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_ids: ids, guild_id, channel_id, delay_min, delay_max }),
+  });
+  const data = await r.json();
+  if (!r.ok) return setResult(out, false, `Error ${r.status}`);
+  const ok = data.results.filter(x => x.ok).length;
+  setResult(out, ok > 0, `${ok} / ${data.results.length} connected`);
+  if (ok > 0) setTimeout(() => location.reload(), 800);
+});
+
+document.getElementById("voiceLeaveBtn").addEventListener("click", async () => {
+  const out = document.getElementById("voiceResult");
+  const ids = [...voiceSelection];
+  if (!ids.length) return setResult(out, false, "Pick accounts first ↗");
+  setResult(out, true, `Leaving ${ids.length}…`);
+  const r = await fetch("/api/voice/leave", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_ids: ids }),
+  });
+  const data = await r.json();
+  if (!r.ok) return setResult(out, false, `Error ${r.status}`);
+  const ok = data.results.filter(x => x.ok).length;
+  setResult(out, ok > 0, `${ok} / ${data.results.length} left`);
+  if (ok > 0) setTimeout(() => location.reload(), 800);
+});
+
+// ── Watch stream ─────────────────────────────────────────────────────────────
 document.getElementById("watchStreamBtn").addEventListener("click", async () => {
   const out = document.getElementById("streamResult");
-  const account_id = document.getElementById("streamAccountSelect").value;
+  const ids = [...streamSelection];
   const guild_id = document.getElementById("voiceGuildId").value.trim();
   const channel_id = document.getElementById("voiceChannelId").value.trim();
   const streamer_user_id = document.getElementById("streamerUserId").value.trim() || null;
-  if (!account_id) return setResult(out, false, "Select an account");
-  if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild ID and Channel ID");
-  setResult(out, true, "Connecting to stream…");
+  const delay_min = parseFloat(document.getElementById("streamDelayMin").value) || 0;
+  const delay_max = parseFloat(document.getElementById("streamDelayMax").value) || 0;
+  if (!ids.length) return setResult(out, false, "Pick accounts first ↗");
+  if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild ID and Channel ID above");
+  setResult(out, true, `Connecting ${ids.length}…`);
   const r = await fetch("/api/voice/watch-stream", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ account_id, guild_id, channel_id, streamer_user_id }),
+    body: JSON.stringify({ account_ids: ids, guild_id, channel_id, streamer_user_id, delay_min, delay_max }),
   });
   const data = await r.json().catch(() => ({}));
   if (r.ok && data.ok) {
-    setResult(out, true, data.note || "👁 Watching stream");
+    const ok = data.results.filter(x => x.ok).length;
+    setResult(out, true, `👁 ${ok} / ${ids.length} watching`);
     setTimeout(() => location.reload(), 800);
   } else {
-    setResult(out, false, data.error || data.detail || `Error ${r.status}`);
+    setResult(out, false, data.detail || `Error ${r.status}`);
   }
 });
 
 document.getElementById("stopStreamBtn").addEventListener("click", async () => {
   const out = document.getElementById("streamResult");
-  const account_id = document.getElementById("streamAccountSelect").value;
-  if (!account_id) return;
+  const ids = [...streamSelection];
+  if (!ids.length) return setResult(out, false, "Pick accounts first ↗");
+  setResult(out, true, `Stopping ${ids.length}…`);
   await fetch("/api/voice/stop-stream", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ account_id }),
+    body: JSON.stringify({ account_ids: ids }),
   });
-  setResult(out, true, "Stopped");
+  setResult(out, true, `Stopped ${ids.length}`);
   setTimeout(() => location.reload(), 600);
 });
 
-// ── Audio player ──────────────────────────────────────────────────
+// ── Audio player ─────────────────────────────────────────────────────────────
 (async () => {
   const trackSelects = document.querySelectorAll(".play-track");
   if (!trackSelects.length) return;
@@ -293,16 +448,12 @@ document.getElementById("playAllSoundBtn").addEventListener("click", async () =>
   const guild_id = document.getElementById("voiceGuildId").value.trim();
   const channel_id = document.getElementById("voiceChannelId").value.trim();
   if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild ID and Channel ID");
-
   const jobs = [...document.querySelectorAll(".play-check:checked")].map(cb => {
     const row = cb.closest(".play-row");
-    const sound_file = row.querySelector(".play-track").value;
-    return { account_id: cb.value, sound_file };
+    return { account_id: cb.value, sound_file: row.querySelector(".play-track").value };
   }).filter(j => j.sound_file);
-
   if (!jobs.length) return setResult(out, false, "Select accounts and assign tracks");
   setResult(out, true, `Starting ${jobs.length}…`);
-
   const results = await Promise.all(jobs.map(j =>
     fetch("/api/voice/play", {
       method: "POST",
@@ -310,67 +461,22 @@ document.getElementById("playAllSoundBtn").addEventListener("click", async () =>
       body: JSON.stringify({ account_id: j.account_id, guild_id, channel_id, sound_file: j.sound_file }),
     }).then(r => r.json()).catch(() => ({ ok: false }))
   ));
-
   const ok = results.filter(r => r.ok).length;
-  setResult(out, ok > 0, `▶ ${ok}/${results.length} playing`);
+  setResult(out, ok > 0, `▶ ${ok} / ${results.length} playing`);
 });
 
 document.getElementById("stopAllSoundBtn").addEventListener("click", async () => {
   const out = document.getElementById("playResult");
-  const checked = [...document.querySelectorAll(".play-check:checked")].map(c => c.value);
-  if (!checked.length) return setResult(out, false, "Select accounts to stop");
-  await Promise.all(checked.map(account_id =>
+  const ids = [...document.querySelectorAll(".play-check:checked")].map(c => c.value);
+  if (!ids.length) return setResult(out, false, "Select accounts to stop");
+  await Promise.all(ids.map(account_id =>
     fetch("/api/voice/stop", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ account_id }),
     })
   ));
-  setResult(out, true, `■ Stopped ${checked.length}`);
-});
-
-// ── Connect / Leave ───────────────────────────────────────────────
-document.getElementById("voiceSelectAllBtn").addEventListener("click", () => {
-  document.querySelectorAll('.acc-check[data-section="voice"]:not(:disabled)').forEach(c => c.checked = true);
-});
-
-document.getElementById("voiceJoinBtn").addEventListener("click", async () => {
-  const out = document.getElementById("voiceResult");
-  const ids = gather("voice");
-  const guild_id = document.getElementById("voiceGuildId").value.trim();
-  const channel_id = document.getElementById("voiceChannelId").value.trim();
-  const delay_min = parseFloat(document.getElementById("delayMin").value) || 0;
-  const delay_max = parseFloat(document.getElementById("delayMax").value) || 0;
-  if (!ids.length) return setResult(out, false, "Select at least one account");
-  if (!guild_id || !channel_id) return setResult(out, false, "Guild + Channel id required");
-  setResult(out, true, `Connecting ${ids.length}…`);
-  const r = await fetch("/api/voice/join", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ account_ids: ids, guild_id, channel_id, delay_min, delay_max }),
-  });
-  const data = await r.json();
-  if (!r.ok) return setResult(out, false, `Error ${r.status}`);
-  const ok = data.results.filter(x => x.ok).length;
-  setResult(out, ok > 0, `${ok}/${data.results.length} connected`);
-  if (ok > 0) setTimeout(() => location.reload(), 800);
-});
-
-document.getElementById("voiceLeaveBtn").addEventListener("click", async () => {
-  const out = document.getElementById("voiceResult");
-  const ids = gather("voice");
-  if (!ids.length) return setResult(out, false, "Select at least one account");
-  setResult(out, true, `Leaving ${ids.length}…`);
-  const r = await fetch("/api/voice/leave", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ account_ids: ids }),
-  });
-  const data = await r.json();
-  if (!r.ok) return setResult(out, false, `Error ${r.status}`);
-  const ok = data.results.filter(x => x.ok).length;
-  setResult(out, ok > 0, `${ok}/${data.results.length} left`);
-  if (ok > 0) setTimeout(() => location.reload(), 800);
+  setResult(out, true, `■ Stopped ${ids.length}`);
 });
 </script>
 {% endblock %}

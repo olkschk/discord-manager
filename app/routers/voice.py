@@ -135,10 +135,12 @@ async def stop_sound_endpoint(body: dict) -> dict:
 
 # ── Stream watching ───────────────────────────────────────────────────────────
 class WatchStreamBody(BaseModel):
-    account_id: str
+    account_ids: list[str] = Field(..., min_length=1)
     guild_id: str
     channel_id: str
     streamer_user_id: str | None = None
+    delay_min: float = Field(0, ge=0, le=60)
+    delay_max: float = Field(0, ge=0, le=60)
 
 
 @router.post("/watch-stream")
@@ -146,57 +148,74 @@ async def watch_stream_endpoint(
     body: WatchStreamBody,
     user: str = Depends(require_login),
 ) -> dict:
-    """Connect account to voice channel and watch an ongoing Go Live stream."""
-    acc = await discords().find_one({"_id": ObjectId(body.account_id), "owner": user})
-    if acc is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
-    try:
-        token = decrypt(acc["discord_token"])
-    except ValueError:
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Token unreadable")
+    """Connect each account to voice and watch an ongoing Go Live stream."""
+    if body.delay_max < body.delay_min:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "delay_max < delay_min")
 
-    proxy_url: str | None = None
-    if acc.get("proxy_id"):
-        from app.database import proxies as proxies_coll
-        from app.services.discord_api import build_proxy_url
-        proxy = await proxies_coll().find_one({"_id": acc["proxy_id"]})
-        if proxy:
-            try:
-                proxy_url = build_proxy_url(
-                    proxy["ip"], proxy["port"], proxy["login"], decrypt(proxy["password"])
-                )
-            except ValueError:
-                proxy_url = None
+    results: list[dict] = []
+    for i, acc_id in enumerate(body.account_ids):
+        if i > 0 and body.delay_max > 0:
+            await asyncio.sleep(random.uniform(body.delay_min, body.delay_max))
 
-    result = await start_watching(
-        body.account_id, token,
-        body.guild_id, body.channel_id,
-        streamer_user_id=body.streamer_user_id,
-        proxy_url=proxy_url,
-    )
+        acc = await discords().find_one({"_id": ObjectId(acc_id), "owner": user})
+        if acc is None:
+            results.append({"account_id": acc_id, "ok": False, "error": "not found"})
+            continue
+        try:
+            token = decrypt(acc["discord_token"])
+        except ValueError:
+            results.append({"account_id": acc_id, "ok": False, "error": "token unreadable"})
+            continue
 
-    if result.get("ok"):
-        await discords().update_one(
-            {"_id": ObjectId(body.account_id)},
-            {"$set": {
-                "joined_voice": True,
-                "joined_stream": True,
-                "voice_guild_id": body.guild_id,
-                "voice_channel_id": body.channel_id,
-            }},
+        proxy_url: str | None = None
+        if acc.get("proxy_id"):
+            from app.database import proxies as proxies_coll
+            from app.services.discord_api import build_proxy_url
+            proxy = await proxies_coll().find_one({"_id": acc["proxy_id"]})
+            if proxy:
+                try:
+                    proxy_url = build_proxy_url(
+                        proxy["ip"], proxy["port"], proxy["login"], decrypt(proxy["password"])
+                    )
+                except ValueError:
+                    proxy_url = None
+
+        result = await start_watching(
+            acc_id, token,
+            body.guild_id, body.channel_id,
+            streamer_user_id=body.streamer_user_id,
+            proxy_url=proxy_url,
         )
-    return result
+
+        if result.get("ok"):
+            await discords().update_one(
+                {"_id": ObjectId(acc_id)},
+                {"$set": {
+                    "joined_voice": True,
+                    "joined_stream": True,
+                    "voice_guild_id": body.guild_id,
+                    "voice_channel_id": body.channel_id,
+                }},
+            )
+        results.append({"account_id": acc_id, "ok": result.get("ok", False)})
+
+    ok_count = sum(1 for r in results if r["ok"])
+    return {"results": results, "ok": ok_count > 0}
+
+
+class StopStreamBody(BaseModel):
+    account_ids: list[str] = Field(..., min_length=1)
 
 
 @router.post("/stop-stream")
-async def stop_stream_endpoint(body: dict) -> dict:
-    """Stop watching a stream and disconnect the account."""
-    account_id = body.get("account_id", "")
-    await stop_watching(account_id)
-    await discords().update_one(
-        {"_id": ObjectId(account_id)},
-        {"$set": {"joined_voice": False, "joined_stream": False, "voice_channel_id": None}},
-    )
+async def stop_stream_endpoint(body: StopStreamBody) -> dict:
+    """Stop watching a stream and disconnect each account."""
+    for acc_id in body.account_ids:
+        await stop_watching(acc_id)
+        await discords().update_one(
+            {"_id": ObjectId(acc_id)},
+            {"$set": {"joined_voice": False, "joined_stream": False, "voice_channel_id": None}},
+        )
     return {"ok": True}
 
 
