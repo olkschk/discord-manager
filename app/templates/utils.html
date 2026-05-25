@@ -144,14 +144,10 @@
     <section>
       <div class="section__head">
         <span class="section__title">Reactions</span>
-        <div class="section__actions">
-          <button type="button" id="reactSelectAll" class="small">Select all valid</button>
-          <button type="button" id="reactRunBtn" class="primary">React</button>
-        </div>
       </div>
 
       <div class="panel">
-        <p class="panel__hint">Add the same reaction from multiple accounts with a random delay.</p>
+        <p class="panel__hint">Add one or more reactions from multiple accounts with a random delay.</p>
         <div class="split">
           <label>
             <span>Channel ID</span>
@@ -163,50 +159,50 @@
           </label>
         </div>
 
-        <!-- Emoji picker -->
+        <!-- Multi-emoji picker -->
         <div style="margin-top:var(--sp-sm);">
-          <div class="label" style="margin-bottom:var(--sp-sm);">Emoji</div>
+          <div class="label" style="margin-bottom:var(--sp-sm);">Emoji <span style="color:var(--text-secondary);font-size:10px;">— pick one or more</span></div>
           <div style="display:flex; gap:var(--sp-sm); flex-wrap:wrap;" id="emojiPicker">
-            <button type="button" class="emoji-btn" data-emoji="✅" title="Галочка">✅</button>
-            <button type="button" class="emoji-btn" data-emoji="❤️" title="Сердечко">❤️</button>
-            <button type="button" class="emoji-btn" data-emoji="🔥" title="Огонь">🔥</button>
-            <button type="button" class="emoji-btn" data-emoji="👍" title="Палец вверх">👍</button>
-            <button type="button" class="emoji-btn" data-emoji="😂" title="Смех">😂</button>
-            <button type="button" class="emoji-btn" data-emoji="🚀" title="Ракета">🚀</button>
-            <button type="button" class="emoji-btn" data-emoji="💯" title="100">💯</button>
-            <button type="button" class="emoji-btn" data-emoji="👀" title="Глаза">👀</button>
-            <button type="button" class="emoji-btn" data-emoji="🤝" title="Рукопожатие">🤝</button>
-            <button type="button" class="emoji-btn" data-emoji="⚡" title="Молния">⚡</button>
+            <button type="button" class="emoji-btn" data-emoji="✅">✅</button>
+            <button type="button" class="emoji-btn" data-emoji="❤️">❤️</button>
+            <button type="button" class="emoji-btn" data-emoji="🔥">🔥</button>
+            <button type="button" class="emoji-btn" data-emoji="👍">👍</button>
+            <button type="button" class="emoji-btn" data-emoji="😂">😂</button>
+            <button type="button" class="emoji-btn" data-emoji="🚀">🚀</button>
+            <button type="button" class="emoji-btn" data-emoji="💯">💯</button>
+            <button type="button" class="emoji-btn" data-emoji="👀">👀</button>
+            <button type="button" class="emoji-btn" data-emoji="🤝">🤝</button>
+            <button type="button" class="emoji-btn" data-emoji="⚡">⚡</button>
           </div>
           <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);margin-top:var(--sp-xs);">
-            Выбрано: <span id="reactEmojiSelected" style="font-size:18px;">—</span>
+            Выбрано: <span id="reactEmojiSelected" style="font-size:16px;letter-spacing:3px;">—</span>
           </div>
-          <input type="hidden" id="reactEmoji" />
         </div>
 
         <div class="split" style="margin-top:var(--sp-sm);">
-          <label>
-            <span>Delay min (s)</span>
-            <input type="number" id="reactDelayMin" value="1" min="0" max="60" step="0.5" />
-          </label>
-          <label>
-            <span>Delay max (s)</span>
-            <input type="number" id="reactDelayMax" value="4" min="0" max="60" step="0.5" />
-          </label>
+          <label><span>Delay min (s)</span><input type="number" id="reactDelayMin" value="1" min="0" max="60" step="0.5" /></label>
+          <label><span>Delay max (s)</span><input type="number" id="reactDelayMax" value="4" min="0" max="60" step="0.5" /></label>
         </div>
-        <div class="rowlist" style="margin-top:var(--sp-md);">
-          {% for a in accounts if a.joined_server %}
-          <label class="rowlist__row">
-            <input type="checkbox" class="acc-check" data-section="react" value="{{ a.id }}" {% if not a.token_valid %}disabled{% endif %} />
-            <span class="rowlist__primary">{{ a.email }}</span>
-            <span class="rowlist__meta">{{ a.username }}</span>
-            <span class="status {% if a.token_valid %}ok{% else %}muted{% endif %}">{{ "valid" if a.token_valid else "invalid" }}</span>
-          </label>
-          {% else %}
-          <p class="muted">No accounts yet.</p>
-          {% endfor %}
+
+        <!-- Account picker trigger -->
+        <div style="display:flex; align-items:center; gap:var(--sp-md); margin-top:var(--sp-md);">
+          <span id="utilsReactAccSummary" style="font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);">0 accounts</span>
+          <button type="button" class="small" id="utilsReactPickAccBtn">Pick accounts ↗</button>
         </div>
-        <output id="reactResult" class="result" style="margin-top:var(--sp-sm)"></output>
+
+        <!-- Pending queue -->
+        <div id="utilsReactPendingSection" style="display:none; background:var(--surface-raised); border:1px solid var(--border-visible); border-radius:4px; padding:var(--sp-sm) var(--sp-md); margin-top:var(--sp-sm);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--sp-xs);">
+            <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-secondary);">Queue</span>
+            <button type="button" class="small danger" id="utilsReactCancelBtn">Cancel</button>
+          </div>
+          <div id="utilsReactPendingList" style="display:grid; gap:2px; max-height:140px; overflow-y:auto; font-family:var(--font-mono); font-size:10px;"></div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:var(--sp-sm);">
+          <output id="reactResult" class="result"></output>
+          <button type="button" id="reactRunBtn" class="primary">React</button>
+        </div>
       </div>
     </section>
 
@@ -325,6 +321,44 @@
   </div>
 </div>
 
+<!-- Utils react account picker modal -->
+<div id="utilsReactAccModal" class="modal" hidden>
+  <div class="modal__panel" style="max-width:460px;">
+    <header class="modal__head">
+      <h3 class="panel__title">Reactions · Pick accounts</h3>
+      <button type="button" class="link" id="utilsReactAccModalClose">Close ×</button>
+    </header>
+    <div class="modal__body" style="gap:var(--sp-md);">
+      <div style="display:flex; gap:var(--sp-sm); align-items:center; flex-wrap:wrap;">
+        <button type="button" class="small" id="utilsReactAccSelAll">Select all</button>
+        <button type="button" class="small" id="utilsReactAccSelClear">Clear</button>
+        <span style="width:1px;height:16px;background:var(--border-visible);"></span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-secondary);">First</span>
+        <input type="number" id="utilsReactAccQuick" min="1" style="width:60px;" />
+        <button type="button" class="small" id="utilsReactAccQuickApply">Pick N</button>
+      </div>
+      <div style="display:grid; gap:1px; background:var(--border); border:1px solid var(--border); border-radius:4px; max-height:280px; overflow-y:auto;">
+        {% for a in accounts if a.joined_server %}
+        <label class="utils-react-acc-row" style="display:flex; gap:var(--sp-sm); align-items:center; padding:6px 10px; background:var(--surface); cursor:pointer;">
+          <input type="checkbox" class="utils-react-acc-check" value="{{ a.id }}"
+            data-username="{{ a.username }}"
+            style="width:14px;height:14px;accent-color:var(--text-display);"
+            {% if not a.token_valid %}disabled{% endif %} />
+          <span style="font-family:var(--font-mono);font-size:12px;color:{% if a.token_valid %}var(--text-display){% else %}var(--text-disabled){% endif %};">{{ a.username }}</span>
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ a.email }}</span>
+        </label>
+        {% else %}
+        <p style="padding:var(--sp-md);color:var(--text-disabled);font-size:12px;">No server-joined accounts</p>
+        {% endfor %}
+      </div>
+    </div>
+    <footer class="modal__foot">
+      <span id="utilsReactAccModalCount" style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);">0 selected</span>
+      <button type="button" class="primary" id="utilsReactAccModalConfirm">Confirm</button>
+    </footer>
+  </div>
+</div>
+
 <script>
 function gather(section) {
   return [...document.querySelectorAll(`.acc-check[data-section="${section}"]:checked`)].map(c => c.value);
@@ -356,40 +390,163 @@ document.getElementById("identityRunBtn").addEventListener("click", async () => 
   if (ok > 0) setTimeout(() => location.reload(), 800);
 });
 
-// Reactions — emoji picker
+// Reactions — multi-emoji picker
+const utilsReactEmojis = new Set();
+let utilsReactCancelled = false;
+
+function updateUtilsReactEmojisDisplay() {
+  document.getElementById("reactEmojiSelected").textContent =
+    utilsReactEmojis.size ? [...utilsReactEmojis].join("  ") : "—";
+}
+
+function getUtilsReactCheckedIds() {
+  return [...document.querySelectorAll(".utils-react-acc-check:checked")].map(c => c.value);
+}
+
+function updateUtilsReactAccSummary() {
+  const n = getUtilsReactCheckedIds().length;
+  const el = document.getElementById("utilsReactAccSummary");
+  if (el) el.textContent = n > 0 ? `${n} accounts selected` : "0 accounts";
+}
+
+function updateUtilsReactAccModalCount() {
+  const n = getUtilsReactCheckedIds().length;
+  const el = document.getElementById("utilsReactAccModalCount");
+  if (el) el.textContent = `${n} selected`;
+}
+
 document.querySelectorAll(".emoji-btn").forEach(btn => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".emoji-btn").forEach(b => b.classList.remove("selected"));
-    btn.classList.add("selected");
-    document.getElementById("reactEmoji").value = btn.dataset.emoji;
-    document.getElementById("reactEmojiSelected").textContent = btn.dataset.emoji;
+    const emoji = btn.dataset.emoji;
+    if (utilsReactEmojis.has(emoji)) { utilsReactEmojis.delete(emoji); btn.classList.remove("selected"); }
+    else { utilsReactEmojis.add(emoji); btn.classList.add("selected"); }
+    updateUtilsReactEmojisDisplay();
   });
 });
 
-document.getElementById("reactSelectAll")?.addEventListener("click", () => {
-  document.querySelectorAll('.acc-check[data-section="react"]:not(:disabled)').forEach(c => c.checked = true);
+// Account picker modal
+document.getElementById("utilsReactPickAccBtn")?.addEventListener("click", () => {
+  document.getElementById("utilsReactAccModal").hidden = false;
 });
+document.getElementById("utilsReactAccModalClose")?.addEventListener("click", () => {
+  document.getElementById("utilsReactAccModal").hidden = true;
+  updateUtilsReactAccSummary();
+});
+document.getElementById("utilsReactAccModal")?.addEventListener("click", (e) => {
+  if (e.target === document.getElementById("utilsReactAccModal")) {
+    document.getElementById("utilsReactAccModal").hidden = true;
+    updateUtilsReactAccSummary();
+  }
+});
+document.getElementById("utilsReactAccSelAll")?.addEventListener("click", () => {
+  document.querySelectorAll(".utils-react-acc-check:not(:disabled)").forEach(c => c.checked = true);
+  updateUtilsReactAccModalCount();
+});
+document.getElementById("utilsReactAccSelClear")?.addEventListener("click", () => {
+  document.querySelectorAll(".utils-react-acc-check").forEach(c => c.checked = false);
+  updateUtilsReactAccModalCount();
+});
+document.getElementById("utilsReactAccQuickApply")?.addEventListener("click", () => {
+  document.querySelectorAll(".utils-react-acc-check").forEach(c => c.checked = false);
+  const n = parseInt(document.getElementById("utilsReactAccQuick").value) || 0;
+  [...document.querySelectorAll(".utils-react-acc-check:not(:disabled)")].slice(0, n).forEach(c => c.checked = true);
+  updateUtilsReactAccModalCount();
+});
+document.querySelectorAll(".utils-react-acc-check").forEach(cb => {
+  cb.addEventListener("change", updateUtilsReactAccModalCount);
+});
+document.getElementById("utilsReactAccModalConfirm")?.addEventListener("click", () => {
+  document.getElementById("utilsReactAccModal").hidden = true;
+  updateUtilsReactAccSummary();
+});
+
+// Cancel queue
+document.getElementById("utilsReactCancelBtn")?.addEventListener("click", () => {
+  utilsReactCancelled = true;
+  const btn = document.getElementById("utilsReactCancelBtn");
+  btn.disabled = true; btn.textContent = "Cancelling…";
+});
+
+// Submit reactions
 document.getElementById("reactRunBtn")?.addEventListener("click", async () => {
   const out = document.getElementById("reactResult");
-  const ids = gather("react");
+  const emojis = [...utilsReactEmojis];
+  const accountIds = getUtilsReactCheckedIds();
   const channel_id = document.getElementById("reactChannelId").value.trim();
   const message_id = document.getElementById("reactMessageId").value.trim();
-  const emoji = document.getElementById("reactEmoji").value;
   const delay_min = parseFloat(document.getElementById("reactDelayMin").value) || 0;
   const delay_max = parseFloat(document.getElementById("reactDelayMax").value) || 0;
-  if (!ids.length) return setResult(out, false, "Select at least one account");
+
+  if (!emojis.length) return setResult(out, false, "Select at least one emoji");
+  if (!accountIds.length) return setResult(out, false, "Select at least one account");
   if (!channel_id || !message_id) return setResult(out, false, "Channel ID and Message ID required");
-  if (!emoji) return setResult(out, false, "Select an emoji first");
-  setResult(out, true, `Reacting ${emoji} with ${ids.length} accounts…`);
-  const r = await fetch("/api/chat/react-bulk", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ account_ids: ids, channel_id, message_id, emoji, delay_min, delay_max }),
+
+  // Build job list: emoji × account
+  const jobs = [];
+  for (const emoji of emojis)
+    for (const accId of accountIds)
+      jobs.push({ emoji, accId, status: "pending" });
+  const total = jobs.length;
+
+  const accNames = {};
+  document.querySelectorAll(".utils-react-acc-check").forEach(cb => {
+    accNames[cb.value] = cb.dataset.username || cb.value.slice(-4);
   });
-  const data = await r.json();
-  if (!r.ok) return setResult(out, false, `Error ${r.status}`);
-  const ok = data.results.filter(x => x.ok).length;
-  setResult(out, ok > 0, `${ok}/${data.results.length} reacted`);
+
+  utilsReactCancelled = false;
+  const pendingSection = document.getElementById("utilsReactPendingSection");
+  const pendingList = document.getElementById("utilsReactPendingList");
+  const cancelBtn = document.getElementById("utilsReactCancelBtn");
+  const submitBtn = document.getElementById("reactRunBtn");
+  cancelBtn.disabled = false; cancelBtn.textContent = "Cancel";
+  pendingSection.style.display = "";
+  submitBtn.disabled = true;
+
+  function renderPending() {
+    pendingList.innerHTML = jobs.map(j => {
+      const color = j.status === "ok" ? "var(--success)" : j.status === "err" ? "#f44"
+        : j.status === "cancelled" ? "var(--text-disabled)" : "var(--text-secondary)";
+      const icon = j.status === "ok" ? "✓" : j.status === "err" ? "✗" : j.status === "cancelled" ? "—" : "·";
+      return `<div style="display:flex;gap:6px;align-items:center;color:${color};line-height:1.4;">
+        <span>${j.emoji}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${accNames[j.accId] || j.accId}</span>
+        <span style="flex-shrink:0;">${icon}</span>
+      </div>`;
+    }).join("");
+    pendingList.scrollTop = pendingList.scrollHeight;
+  }
+
+  renderPending();
+  out.className = "result"; out.textContent = `0 / ${total}…`;
+
+  let done = 0, ok = 0;
+  for (const job of jobs) {
+    if (utilsReactCancelled) {
+      for (const j of jobs) { if (j.status === "pending") j.status = "cancelled"; }
+      renderPending(); break;
+    }
+    const r = await fetch("/api/chat/react-bulk", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_ids: [job.accId], channel_id, message_id, emoji: job.emoji, delay_min: 0, delay_max: 0 }),
+    });
+    const data = await r.json().catch(() => ({}));
+    const success = r.ok && (data.results || []).some(x => x.ok);
+    job.status = success ? "ok" : "err";
+    if (success) ok++;
+    done++;
+    renderPending();
+    out.textContent = `${done} / ${total}…`;
+    if (done < total && !utilsReactCancelled && delay_max > 0) {
+      const ms = (Math.random() * (delay_max - delay_min) + delay_min) * 1000;
+      await new Promise(res => setTimeout(res, ms));
+    }
+  }
+
+  submitBtn.disabled = false;
+  setResult(out, ok > 0, utilsReactCancelled
+    ? `Cancelled · ${ok}/${done} reacted`
+    : `${ok}/${total} reacted · ${[...utilsReactEmojis].join("")}`);
 });
 
 // Join server
