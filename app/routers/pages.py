@@ -6,10 +6,20 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.database import discords, proxies as proxies_coll, topics
-from app.security import require_login
+from app.security import decrypt, require_login
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+
+
+def _safe_decrypt(value: str | None) -> str:
+    """Decrypt an encrypted field; return empty string on failure or None."""
+    if not value:
+        return ""
+    try:
+        return decrypt(value)
+    except Exception:
+        return ""
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -33,6 +43,7 @@ async def dashboard(
                 "has_2fa": acc.get("two_fa_secret") is not None,
                 "is_donor": acc.get("is_donor", False),
                 "group": acc.get("group", "Masovka"),
+                "password": _safe_decrypt(acc.get("password")),
             }
         )
 

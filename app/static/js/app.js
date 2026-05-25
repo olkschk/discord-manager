@@ -130,37 +130,198 @@ function closeInbox() {
 document.getElementById("inboxClose")?.addEventListener("click", closeInbox);
 document.getElementById("inboxRefresh")?.addEventListener("click", loadInbox);
 inboxModal?.addEventListener("click", (e) => { if (e.target === inboxModal) closeInbox(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !inboxModal.hidden) closeInbox(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !inboxModal?.hidden) closeInbox(); });
 
-// ── Group selector ────────────────────────────────────────────────────────
-document.querySelectorAll(".group-select").forEach(sel => {
-  sel.addEventListener("change", async () => {
-    await fetch(`/api/accounts/${sel.dataset.id}/group`, {
-      method: "PATCH",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ group: sel.value }),
-    });
+// ── Inventory: checkbox selection ────────────────────────────────────────
+function getSelectedIds() {
+  return [...document.querySelectorAll(".row-check:checked")].map(cb => cb.value);
+}
+
+function updateBulkState() {
+  const ids = getSelectedIds();
+  const n = ids.length;
+  const selCount = document.getElementById("selCount");
+  if (selCount) selCount.textContent = `${n} selected`;
+  ["bulkValidateBtn","bulkLoginBtn","bulkVerifyBtn","bulk2faSetupBtn","bulkGroupBtn","bulkDeleteBtn"].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = n === 0;
   });
+}
+
+document.getElementById("checkAll")?.addEventListener("change", (e) => {
+  document.querySelectorAll(".row-check").forEach(cb => { cb.checked = e.target.checked; });
+  updateBulkState();
+});
+
+document.querySelectorAll(".row-check").forEach(cb => {
+  cb.addEventListener("change", () => {
+    const all = document.getElementById("checkAll");
+    if (all) {
+      const boxes = document.querySelectorAll(".row-check");
+      all.checked = [...boxes].every(b => b.checked);
+      all.indeterminate = !all.checked && [...boxes].some(b => b.checked);
+    }
+    updateBulkState();
+  });
+});
+
+document.getElementById("selectAllBtn")?.addEventListener("click", () => {
+  document.querySelectorAll(".row-check").forEach(cb => { cb.checked = true; });
+  const all = document.getElementById("checkAll");
+  if (all) { all.checked = true; all.indeterminate = false; }
+  updateBulkState();
+});
+
+document.getElementById("clearSelBtn")?.addEventListener("click", () => {
+  document.querySelectorAll(".row-check").forEach(cb => { cb.checked = false; });
+  const all = document.getElementById("checkAll");
+  if (all) { all.checked = false; all.indeterminate = false; }
+  updateBulkState();
+});
+
+// ── Inventory: bulk actions ──────────────────────────────────────────────
+const bulkResult = document.getElementById("bulkResult");
+
+async function runBulkSequential(ids, urlFn, btnEl, label) {
+  if (!ids.length) return;
+  btnEl.disabled = true;
+  const orig = btnEl.textContent;
+  let done = 0;
+  for (const id of ids) {
+    btnEl.textContent = `${label} ${++done}/${ids.length}…`;
+    await fetch(urlFn(id), { method: "POST" });
+  }
+  btnEl.textContent = orig;
+  btnEl.disabled = false;
+  location.reload();
+}
+
+document.getElementById("bulkValidateBtn")?.addEventListener("click", async (e) => {
+  const ids = getSelectedIds();
+  await runBulkSequential(ids, id => `/api/accounts/${id}/validate`, e.target, "Validating");
+});
+
+document.getElementById("bulkLoginBtn")?.addEventListener("click", async (e) => {
+  const ids = getSelectedIds();
+  await runBulkSequential(ids, id => `/api/accounts/${id}/login-by-mail`, e.target, "Logging in");
+});
+
+document.getElementById("bulkVerifyBtn")?.addEventListener("click", async (e) => {
+  const ids = getSelectedIds();
+  await runBulkSequential(ids, id => `/api/accounts/${id}/verify-email`, e.target, "Verifying");
+});
+
+document.getElementById("bulkDeleteBtn")?.addEventListener("click", async (e) => {
+  const ids = getSelectedIds();
+  if (!ids.length) return;
+  if (!confirm(`Remove ${ids.length} account(s)? This cannot be undone.`)) return;
+  e.target.disabled = true;
+  const orig = e.target.textContent;
+  let done = 0;
+  for (const id of ids) {
+    e.target.textContent = `Removing ${++done}/${ids.length}…`;
+    await fetch(`/api/accounts/${id}`, { method: "DELETE" });
+  }
+  e.target.textContent = orig;
+  location.reload();
+});
+
+document.getElementById("bulkGroupBtn")?.addEventListener("click", async (e) => {
+  const ids = getSelectedIds();
+  const group = document.getElementById("bulkGroupSel")?.value;
+  if (!ids.length || !group) return;
+  e.target.disabled = true;
+  const orig = e.target.textContent;
+  e.target.textContent = "Setting…";
+  const resp = await fetch("/api/accounts/bulk-group", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_ids: ids, group }),
+  });
+  const data = await resp.json().catch(() => ({}));
+  e.target.textContent = orig;
+  e.target.disabled = false;
+  if (resp.ok) {
+    if (bulkResult) asResult(bulkResult, true, `Group set to ${group} for ${data.updated} account(s)`);
+    setTimeout(() => location.reload(), 600);
+  } else {
+    if (bulkResult) asResult(bulkResult, false, `Error ${resp.status}`);
+  }
+});
+
+// ── Inventory: bulk 2FA Setup ────────────────────────────────────────────
+document.getElementById("bulk2faSetupBtn")?.addEventListener("click", async (e) => {
+  const ids = getSelectedIds();
+  if (!ids.length) return;
+  e.target.disabled = true;
+  const orig = e.target.textContent;
+  let done = 0, ok = 0;
+  for (const id of ids) {
+    e.target.textContent = `2FA ${++done}/${ids.length}…`;
+    const resp = await fetch(`/api/utils/2fa/setup`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id: id }),
+    });
+    if (resp.ok) ok++;
+  }
+  e.target.textContent = orig;
+  if (bulkResult) asResult(bulkResult, ok > 0, `2FA setup: ${ok}/${ids.length} succeeded`);
+  setTimeout(() => location.reload(), 800);
+});
+
+// ── Inventory: per-row 2FA get-code (event delegation) ──────────────────
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".mfa-code-btn");
+  if (!btn) return;
+  const row = btn.closest("tr[data-id]");
+  if (!row) return;
+  const id = row.dataset.id;
+  btn.disabled = true;
+  btn.textContent = "…";
+  try {
+    const resp = await fetch(`/api/utils/2fa/${id}/code`);
+    const data = await resp.json().catch(() => ({}));
+    btn.disabled = false;
+    btn.textContent = "Get code";
+    if (data.code) {
+      // Show code inline next to button
+      const codeEl = btn.nextElementSibling;
+      if (codeEl && codeEl.classList.contains("mfa-code")) {
+        codeEl.textContent = data.code;
+        try { await navigator.clipboard.writeText(data.code); } catch { /* denied */ }
+      } else {
+        alert("2FA code: " + data.code);
+      }
+    } else {
+      alert("Failed: " + (data.error || resp.status));
+    }
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = "Get code";
+    alert("Network error: " + err.message);
+  }
+});
+
+// ── Inventory: password show/hide toggle ─────────────────────────────────
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".pw-toggle");
+  if (!btn) return;
+  const cell = btn.closest(".pw-cell");
+  if (!cell) return;
+  const dots = cell.querySelector(".pw-dots");
+  const text = cell.querySelector(".pw-text");
+  if (!dots || !text) return;
+  const visible = text.style.display !== "none";
+  dots.style.display = visible ? "" : "none";
+  text.style.display = visible ? "none" : "";
+  btn.textContent = visible ? "show" : "hide";
 });
 
 // ── Row actions ──────────────────────────────────────────────────────────
 document.querySelectorAll("table.accounts tbody tr[data-id]").forEach((row) => {
   const id = row.dataset.id;
   const email = row.querySelector(".email")?.textContent.trim() || "";
-  row.querySelector(".row-validate")?.addEventListener("click", async () => {
-    const r = await postForm(`/api/accounts/${id}/validate`, new FormData());
-    if (r.ok) location.reload();
-  });
-  // row-verify handled via delegation below
-  row.querySelector(".row-relogin")?.addEventListener("click", async (e) => {
-    const btn = e.target;
-    btn.disabled = true; btn.textContent = "…";
-    const resp = await fetch(`/api/accounts/${id}/login-by-mail`, { method: "POST" });
-    const data = await resp.json().catch(() => ({}));
-    btn.disabled = false; btn.textContent = "Login";
-    if (data.ok) location.reload();
-    else alert("Login failed: " + (data.error || resp.status));
-  });
   row.querySelector(".row-inbox")?.addEventListener("click", () => openInbox(id, email));
   row.querySelector(".row-reset")?.addEventListener("click", async (e) => {
     const newPw = prompt(`New password for ${email}? (min 8 chars)\n\nDiscord will mail a reset link; we'll fetch it via IMAP and apply.`);
@@ -181,11 +342,6 @@ document.querySelectorAll("table.accounts tbody tr[data-id]").forEach((row) => {
     } else {
       alert("Reset failed: " + (data.error || resp.status));
     }
-  });
-  row.querySelector(".row-delete")?.addEventListener("click", async () => {
-    if (!confirm("Remove this account?")) return;
-    const resp = await fetch(`/api/accounts/${id}`, { method: "DELETE" });
-    if (resp.ok) location.reload();
   });
 });
 

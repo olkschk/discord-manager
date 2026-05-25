@@ -244,34 +244,6 @@
       </div>
     </section>
 
-    <!-- 2FA -->
-    <section>
-      <div class="section__head">
-        <span class="section__title">Two-factor</span>
-        <span class="section__sub">Setup TOTP per account</span>
-      </div>
-
-      <div class="panel">
-        <p class="panel__hint">Setup creates a Discord-side TOTP secret and stores it encrypted. Get-code returns the current 6-digit code.</p>
-        <div class="rowlist">
-          {% for a in accounts %}
-          <div class="rowlist__row" data-account="{{ a.id }}" style="grid-template-columns:1fr auto auto auto;">
-            <span class="rowlist__primary">{{ a.email }}</span>
-            <span class="status {% if a.has_2fa %}ok{% else %}muted{% endif %} mfa-status">{{ "on" if a.has_2fa else "off" }}</span>
-            <span class="mfa-code muted">—</span>
-            {% if a.has_2fa %}
-              <button type="button" class="small mfa-code-btn">Get code</button>
-            {% else %}
-              <button type="button" class="small primary mfa-setup-btn" {% if not a.token_valid %}disabled{% endif %}>Setup</button>
-            {% endif %}
-          </div>
-          {% else %}
-          <p class="muted">No accounts yet.</p>
-          {% endfor %}
-        </div>
-      </div>
-    </section>
-
     <!-- Email viewer -->
     <section>
       <div class="section__head">

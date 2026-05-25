@@ -219,6 +219,26 @@ async def set_group(
     return {"ok": True, "group": group}
 
 
+@router.post("/bulk-group")
+async def bulk_set_group(
+    body: dict,
+    user: str = Depends(require_login),
+) -> dict:
+    """Set the same group for multiple accounts at once."""
+    account_ids: list[str] = body.get("account_ids", [])
+    group: str = body.get("group", "Masovka")
+    if group not in ("Influencer", "Chatter", "Masovka"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid group")
+    valid_ids = [ObjectId(aid) for aid in account_ids if ObjectId.is_valid(aid)]
+    if not valid_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No valid account IDs")
+    result = await discords().update_many(
+        {"_id": {"$in": valid_ids}, "owner": user},
+        {"$set": {"group": group}},
+    )
+    return {"ok": True, "updated": result.modified_count, "group": group}
+
+
 @router.delete("/{account_id}")
 async def delete_account(
     account_id: str,
