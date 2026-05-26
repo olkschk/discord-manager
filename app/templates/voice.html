@@ -137,9 +137,13 @@
             <p class="muted" style="padding:var(--sp-sm)">No accounts on server yet.</p>
             {% endfor %}
           </div>
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:var(--sp-xs);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:var(--sp-xs); flex-wrap:wrap; gap:var(--sp-xs);">
             <output id="playResult" class="result" style="flex:1; font-size:11px;"></output>
-            <div style="display:flex; gap:var(--sp-sm);">
+            <div style="display:flex; gap:var(--sp-sm); align-items:center;">
+              <label class="dup-toggle" style="font-size:11px;">
+                <input type="checkbox" id="playLoopToggle" />
+                <span>Loop</span>
+              </label>
               <button type="button" id="playSelectAllBtn" class="small">Select all</button>
               <button type="button" id="stopAllSoundBtn" class="small danger">■ Stop</button>
               <button type="button" id="playAllSoundBtn" class="primary">▶ Play</button>
@@ -447,6 +451,7 @@ document.getElementById("playAllSoundBtn").addEventListener("click", async () =>
   const out = document.getElementById("playResult");
   const guild_id = document.getElementById("voiceGuildId").value.trim();
   const channel_id = document.getElementById("voiceChannelId").value.trim();
+  const loop = document.getElementById("playLoopToggle").checked;
   if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild ID and Channel ID");
   const jobs = [...document.querySelectorAll(".play-check:checked")].map(cb => {
     const row = cb.closest(".play-row");
@@ -458,11 +463,11 @@ document.getElementById("playAllSoundBtn").addEventListener("click", async () =>
     fetch("/api/voice/play", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ account_id: j.account_id, guild_id, channel_id, sound_file: j.sound_file }),
+      body: JSON.stringify({ account_id: j.account_id, guild_id, channel_id, sound_file: j.sound_file, loop }),
     }).then(r => r.json()).catch(() => ({ ok: false }))
   ));
   const ok = results.filter(r => r.ok).length;
-  setResult(out, ok > 0, `▶ ${ok} / ${results.length} playing`);
+  setResult(out, ok > 0, `▶ ${ok} / ${results.length} playing${loop ? " · looping" : ""}`);
 });
 
 document.getElementById("stopAllSoundBtn").addEventListener("click", async () => {

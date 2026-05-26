@@ -287,7 +287,7 @@ async def _scheduler_loop() -> None:
             raise
         except Exception:  # noqa: BLE001
             logger.exception("scheduler cycle failed")
-        await asyncio.sleep(30)  # check every 30 seconds
+        await asyncio.sleep(10)  # check every 10 seconds
 
 
 # ── Lifecycle ────────────────────────────────────────────────────────────────

@@ -128,11 +128,15 @@
               <input type="file" id="sendFile" accept="image/*,video/*,audio/*,application/*" />
               <span id="fileLabel">Attach file</span>
             </label>
-            <!-- Scheduled time -->
-            <label style="display:flex; align-items:center; gap:var(--sp-sm); font-family:var(--font-mono); font-size:11px; color:var(--text-secondary);">
+            <!-- Scheduled time + quick-add buttons -->
+            <div style="display:flex; align-items:center; gap:var(--sp-xs); font-family:var(--font-mono); font-size:11px; color:var(--text-secondary); flex-wrap:wrap;">
               <span>Schedule</span>
               <input type="datetime-local" id="scheduleTime" style="background:var(--black);border:1px solid var(--border-visible);border-radius:4px;padding:6px 8px;font-family:var(--font-mono);font-size:11px;color:var(--text-primary);" />
-            </label>
+              <button type="button" class="small sched-quick" data-sec="10">+10s</button>
+              <button type="button" class="small sched-quick" data-sec="30">+30s</button>
+              <button type="button" class="small sched-quick" data-sec="60">+1m</button>
+              <button type="button" class="small sched-quick" data-sec="300">+5m</button>
+            </div>
           </div>
           <div class="send__row send__actions">
             <label class="dup-toggle">
@@ -991,6 +995,43 @@ document.querySelectorAll(".react-acc-check").forEach(cb => {
 document.getElementById("reactAccModalConfirm").addEventListener("click", () => {
   document.getElementById("reactAccModal").hidden = true;
   updateReactAccSummary();
+});
+
+// ── Schedule quick-send buttons (+10s / +30s / +1m / +5m) ────────────────
+// Sets the datetime-local input to now + delaySec, then submits to the scheduler.
+document.querySelectorAll(".sched-quick").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const accountId = accountSelect.value;
+    const text = document.getElementById("sendText").value.trim();
+    const out = document.getElementById("sendResult");
+
+    if (!accountId) { out.className = "result err"; out.textContent = "Select an account"; return; }
+    if (!text) { out.className = "result err"; out.textContent = "Write a message first"; return; }
+    if (!currentTopic) { out.className = "result err"; out.textContent = "Open a topic first"; return; }
+
+    const delaySec = parseInt(btn.dataset.sec);
+    const scheduledAt = new Date(Date.now() + delaySec * 1000).toISOString();
+
+    const resp = await fetch("/api/chat/schedule", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        account_id: accountId,
+        channel_id: currentTopic,
+        content: text,
+        reply_to: replyTo,
+        scheduled_at: scheduledAt,
+      }),
+    });
+    const d = await resp.json().catch(() => ({}));
+    if (resp.ok) {
+      out.className = "result ok";
+      out.textContent = `Scheduled in ${delaySec >= 60 ? (delaySec / 60) + "m" : delaySec + "s"}`;
+      loadScheduled();
+    } else {
+      out.className = "result err"; out.textContent = d.detail || "Failed to schedule";
+    }
+  });
 });
 
 // Cancel queue

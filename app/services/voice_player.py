@@ -54,6 +54,7 @@ async def play_sound(
     sound_path: str,
     *,
     proxy_url: str | None = None,
+    loop: bool = False,
 ) -> dict:
     """Connect to voice channel and play sound_path.
 
@@ -102,13 +103,26 @@ async def play_sound(
             logger.info("voice_player: connected to %s, playing %s", channel.name, sound_file.name)
             ready_event.set()
 
+            async def _loop_or_stop():
+                """Called after each track ends: restart if looping, else disconnect."""
+                if loop and account_id in _sessions and vc.is_connected():
+                    logger.info("voice_player: looping %s for %s", sound_file.name, account_id)
+                    try:
+                        vc.play(
+                            discord.FFmpegOpusAudio(str(sound_file), executable=_resolve_ffmpeg()),
+                            after=after_play,
+                        )
+                    except Exception as exc:
+                        logger.warning("voice_player: loop replay error: %s", exc)
+                        await _disconnect_and_close(account_id, vc, client)
+                else:
+                    logger.info("voice_player: finished playing %s for %s", sound_file.name, account_id)
+                    await _disconnect_and_close(account_id, vc, client)
+
             def after_play(error):
                 if error:
                     logger.warning("voice_player: playback error: %s", error)
-                logger.info("voice_player: finished playing %s for %s", sound_file.name, account_id)
-                asyncio.run_coroutine_threadsafe(
-                    _disconnect_and_close(account_id, vc, client), client.loop
-                )
+                asyncio.run_coroutine_threadsafe(_loop_or_stop(), client.loop)
 
             vc.play(
                 discord.FFmpegOpusAudio(str(sound_file), executable=_resolve_ffmpeg()),
