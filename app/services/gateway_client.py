@@ -199,7 +199,7 @@ class GatewayConnection:
         )
 
     async def join_voice(
-        self, guild_id: str, channel_id: str, *, mute: bool = False, deaf: bool = True
+        self, guild_id: str, channel_id: str, *, mute: bool = True, deaf: bool = False
     ) -> None:
         await self._send(
             {
