@@ -678,6 +678,8 @@ async function loadScheduled() {
 }
 document.getElementById("refreshScheduled").addEventListener("click", loadScheduled);
 loadScheduled();
+// Auto-refresh every 10s so sent/failed tasks disappear without manual refresh
+setInterval(loadScheduled, 10_000);
 
 // ── DM conversations ──────────────────────────────────────────────────────────
 let activeDM = null;

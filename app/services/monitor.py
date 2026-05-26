@@ -245,7 +245,6 @@ async def _dm_loop() -> None:
 async def _scheduler_cycle() -> None:
     import random
     from datetime import datetime, timezone
-    from bson import ObjectId
     from app.database import db as _db
     from app.services.account_helpers import load_account_token_and_proxy
     from app.services.discord_api import send_message, trigger_typing
@@ -253,15 +252,19 @@ async def _scheduler_cycle() -> None:
     now = datetime.now(timezone.utc)
     coll = _db()["scheduled_messages"]
 
-    async for task in coll.find({"status": "pending", "scheduled_at": {"$lte": now}}):
+    # Collect all due tasks first, then fire them all in parallel
+    due_tasks = await coll.find({"status": "pending", "scheduled_at": {"$lte": now}}).to_list(length=None)
+    if not due_tasks:
+        return
+
+    async def _send_one(task: dict) -> None:
         acc_id = task.get("account_id", "")
         resolved = await load_account_token_and_proxy(acc_id)
         if resolved is None:
             await coll.update_one({"_id": task["_id"]}, {"$set": {"status": "failed", "error": "unreadable"}})
-            continue
+            return
         _, token, proxy_url = resolved
 
-        # Typing simulation before the scheduled send
         content = task["content"]
         typing_delay = max(1.5, min(8.0, len(content) * 0.07)) * random.uniform(0.8, 1.2)
         await trigger_typing(token, task["channel_id"], proxy_url=proxy_url)
@@ -277,6 +280,8 @@ async def _scheduler_cycle() -> None:
         else:
             await coll.update_one({"_id": task["_id"]}, {"$set": {"status": "failed"}})
             logger.warning("scheduler: failed to send message %s", task["_id"])
+
+    await asyncio.gather(*(_send_one(t) for t in due_tasks))
 
 
 async def _scheduler_loop() -> None:
