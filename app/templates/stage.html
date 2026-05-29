@@ -170,6 +170,10 @@
             <div style="display:flex; gap:var(--sp-sm);">
               <button type="button" id="stagePlaySelectAllBtn" class="small">Select all</button>
               <button type="button" id="stageStopAllSoundBtn" class="small danger">■ Stop all</button>
+              <label class="dup-toggle" style="font-size:11px;">
+                <input type="checkbox" id="stagePlayLoopToggle" />
+                <span>Loop</span>
+              </label>
               <button type="button" id="stagePlayAllSoundBtn" class="primary">▶ Play all</button>
             </div>
           </div>
@@ -393,19 +397,20 @@ document.getElementById("stagePlayAllSoundBtn").addEventListener("click", async 
   }).filter(j => j.sound_file);
 
   if (!jobs.length) return setResult(out, false, "Select accounts and assign tracks");
+  const loop = document.getElementById("stagePlayLoopToggle").checked;
   setResult(out, true, `Connecting ${jobs.length}…`);
 
   const results = await Promise.all(jobs.map(j =>
     fetch("/api/stage/play", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ account_id: j.account_id, guild_id, channel_id, sound_file: j.sound_file }),
+      body: JSON.stringify({ account_id: j.account_id, guild_id, channel_id, sound_file: j.sound_file, loop }),
     }).then(r => r.json()).catch(() => ({ ok: false }))
   ));
 
   const ok = results.filter(r => r.ok).length;
   const speakers = results.filter(r => r.speaker).length;
-  setResult(out, ok > 0, `▶ ${ok}/${results.length} playing · ${speakers} as speaker`);
+  setResult(out, ok > 0, `▶ ${ok}/${results.length} playing · ${speakers} as speaker${loop ? " · looping" : ""}`);
 });
 
 document.getElementById("stageStopAllSoundBtn").addEventListener("click", async () => {

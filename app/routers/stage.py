@@ -187,6 +187,7 @@ class StagePlayBody(BaseModel):
     guild_id: str
     channel_id: str
     sound_file: str
+    loop: bool = False
 
 
 @router.post("/play")
@@ -210,7 +211,7 @@ async def stage_play_sound(
     result = await play_sound(
         body.account_id, token,
         body.guild_id, body.channel_id,
-        sound_path, proxy_url=proxy_url,
+        sound_path, proxy_url=proxy_url, loop=body.loop,
     )
 
     if result.get("ok"):
