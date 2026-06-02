@@ -204,8 +204,10 @@
           <button type="button" class="emoji-btn" data-emoji="🤝">🤝</button>
           <button type="button" class="emoji-btn" data-emoji="⚡">⚡</button>
         </div>
-        <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);margin-top:var(--sp-xs);">
-          Selected: <span id="reactModalEmojis" style="font-size:16px;letter-spacing:3px;">—</span>
+        <!-- Per-emoji count inputs (shown when ≥1 emoji selected) -->
+        <div id="reactCountsSection" style="display:none; margin-top:var(--sp-sm);">
+          <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-secondary);margin-bottom:4px;">Accounts per emoji</div>
+          <div id="reactCountsList" style="display:flex; gap:var(--sp-sm); flex-wrap:wrap;"></div>
         </div>
       </div>
 
@@ -877,12 +879,28 @@ setInterval(pollUnread, 30000);
 
 // ── Reaction modal ────────────────────────────────────────────────────────
 let reactTargetMessageId = null;
-const reactEmojis = new Set();
+const reactEmojiCounts = new Map(); // emoji → count
 let reactCancelled = false;
 
-function updateReactEmojisDisplay() {
-  const el = document.getElementById("reactModalEmojis");
-  el.textContent = reactEmojis.size ? [...reactEmojis].join("  ") : "—";
+function renderReactCounts() {
+  const section = document.getElementById("reactCountsSection");
+  const list = document.getElementById("reactCountsList");
+  if (!reactEmojiCounts.size) { section.style.display = "none"; return; }
+  section.style.display = "";
+  list.innerHTML = [...reactEmojiCounts.entries()].map(([emoji, cnt]) => `
+    <div style="display:flex;align-items:center;gap:4px;background:var(--surface-raised);border:1px solid var(--border-visible);border-radius:4px;padding:3px 8px;">
+      <span style="font-size:16px;">${emoji}</span>
+      <input type="number" class="emoji-count-input" data-emoji="${emoji}" value="${cnt}" min="1" max="999"
+        style="width:48px;font-family:var(--font-mono);font-size:12px;background:transparent;border:none;color:var(--text-primary);text-align:center;padding:0;outline:none;" />
+    </div>
+  `).join("");
+  list.querySelectorAll(".emoji-count-input").forEach(inp => {
+    inp.addEventListener("change", () => {
+      const v = Math.max(1, parseInt(inp.value) || 1);
+      inp.value = v;
+      reactEmojiCounts.set(inp.dataset.emoji, v);
+    });
+  });
 }
 
 function getReactCheckedIds() {
@@ -924,10 +942,10 @@ document.getElementById("messages").addEventListener("click", (e) => {
   const btn = e.target.closest(".msg__react-btn");
   if (!btn) return;
   reactTargetMessageId = btn.dataset.id;
-  reactEmojis.clear();
+  reactEmojiCounts.clear();
   reactCancelled = false;
   document.querySelectorAll(".emoji-btn").forEach(b => b.classList.remove("selected"));
-  updateReactEmojisDisplay();
+  renderReactCounts();
   document.getElementById("reactModalResult").textContent = "";
   document.getElementById("reactModalResult").className = "result";
   document.getElementById("reactPendingSection").style.display = "none";
@@ -950,9 +968,9 @@ document.getElementById("reactModal").addEventListener("click", (e) => {
 document.querySelectorAll(".emoji-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     const emoji = btn.dataset.emoji;
-    if (reactEmojis.has(emoji)) { reactEmojis.delete(emoji); btn.classList.remove("selected"); }
-    else { reactEmojis.add(emoji); btn.classList.add("selected"); }
-    updateReactEmojisDisplay();
+    if (reactEmojiCounts.has(emoji)) { reactEmojiCounts.delete(emoji); btn.classList.remove("selected"); }
+    else { reactEmojiCounts.set(emoji, 1); btn.classList.add("selected"); }
+    renderReactCounts();
   });
 });
 
@@ -1047,20 +1065,21 @@ document.getElementById("reactCancelBtn").addEventListener("click", () => {
 // Submit reactions — one account per request so cancellation works between each
 document.getElementById("reactModalSubmit").addEventListener("click", async () => {
   const out = document.getElementById("reactModalResult");
-  const emojis = [...reactEmojis];
   const accountIds = getReactCheckedIds();
   const delay_min = parseFloat(document.getElementById("reactDelayMin").value) || 1;
   const delay_max = parseFloat(document.getElementById("reactDelayMax").value) || 4;
 
-  if (!emojis.length) { out.className = "result err"; out.textContent = "Select at least one emoji"; return; }
+  if (!reactEmojiCounts.size) { out.className = "result err"; out.textContent = "Select at least one emoji"; return; }
   if (!accountIds.length) { out.className = "result err"; out.textContent = "Select at least one account"; return; }
   if (!currentTopic) { out.className = "result err"; out.textContent = "No topic open"; return; }
   if (!reactTargetMessageId) { out.className = "result err"; out.textContent = "No message selected"; return; }
 
-  // Build flat job list: emoji × account
+  // Build jobs: per emoji, pick `count` random accounts from the pool
   const jobs = [];
-  for (const emoji of emojis) {
-    for (const accId of accountIds) {
+  for (const [emoji, count] of reactEmojiCounts) {
+    const shuffled = [...accountIds].sort(() => Math.random() - 0.5);
+    const picked = shuffled.slice(0, Math.min(count, shuffled.length));
+    for (const accId of picked) {
       jobs.push({ emoji, accId, status: "pending" });
     }
   }
@@ -1141,7 +1160,7 @@ document.getElementById("reactModalSubmit").addEventListener("click", async () =
   out.className = ok > 0 ? "result ok" : "result err";
   out.textContent = reactCancelled
     ? `Cancelled · ${ok}/${done} reacted`
-    : `${ok}/${total} reacted · ${[...reactEmojis].join("")}`;
+    : `${ok}/${total} reacted · ${[...reactEmojiCounts.keys()].join("")}`;
 });
 </script>
 {% endblock %}
