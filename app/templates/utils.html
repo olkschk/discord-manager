@@ -400,17 +400,20 @@ function renderUtilsReactCounts() {
   const section = document.getElementById("utilsReactCountsSection");
   const list = document.getElementById("utilsReactCountsList");
   if (!utilsReactEmojiCounts.size) { section.style.display = "none"; return; }
+  const maxAcc = Math.max(1, getUtilsReactCheckedIds().length);
+  for (const [emoji, cnt] of utilsReactEmojiCounts)
+    if (cnt > maxAcc) utilsReactEmojiCounts.set(emoji, maxAcc);
   section.style.display = "";
   list.innerHTML = [...utilsReactEmojiCounts.entries()].map(([emoji, cnt]) => `
     <div style="display:flex;align-items:center;gap:4px;background:var(--surface-raised);border:1px solid var(--border-visible);border-radius:4px;padding:3px 8px;">
       <span style="font-size:16px;">${emoji}</span>
-      <input type="number" class="utils-emoji-count-input" data-emoji="${emoji}" value="${cnt}" min="1" max="999"
+      <input type="number" class="utils-emoji-count-input" data-emoji="${emoji}" value="${Math.min(cnt, maxAcc)}" min="1" max="${maxAcc}"
         style="width:48px;font-family:var(--font-mono);font-size:12px;background:transparent;border:none;color:var(--text-primary);text-align:center;padding:0;outline:none;" />
     </div>
   `).join("");
   list.querySelectorAll(".utils-emoji-count-input").forEach(inp => {
     inp.addEventListener("change", () => {
-      const v = Math.max(1, parseInt(inp.value) || 1);
+      const v = Math.min(Math.max(1, parseInt(inp.value) || 1), maxAcc);
       inp.value = v;
       utilsReactEmojiCounts.set(inp.dataset.emoji, v);
     });
@@ -476,6 +479,7 @@ document.querySelectorAll(".utils-react-acc-check").forEach(cb => {
 document.getElementById("utilsReactAccModalConfirm")?.addEventListener("click", () => {
   document.getElementById("utilsReactAccModal").hidden = true;
   updateUtilsReactAccSummary();
+  renderUtilsReactCounts(); // re-clamp counts to new pool size
 });
 
 // Cancel queue
