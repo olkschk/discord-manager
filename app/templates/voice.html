@@ -158,22 +158,34 @@
 
 <!-- Shared account picker modal -->
 <div id="accountPickerModal" class="modal" hidden>
-  <div class="modal__panel" style="width:min(560px,95vw); max-height:80vh; display:flex; flex-direction:column;">
+  <div class="modal__panel" style="width:min(740px,96vw); max-height:88vh; display:flex; flex-direction:column;">
     <header class="modal__head" style="flex-shrink:0;">
       <h3 class="panel__title" id="pickerTitle">Select accounts</h3>
       <button type="button" class="link" id="pickerClose">Close ×</button>
     </header>
 
-    <!-- Quick-select bar -->
-    <div style="display:flex; align-items:center; gap:var(--sp-sm); padding:var(--sp-md) var(--sp-lg); border-bottom:1px solid var(--border); flex-shrink:0;">
-      <span style="font-size:11px; color:var(--text-secondary); letter-spacing:.08em; white-space:nowrap;">First</span>
-      <input type="number" id="quickSelectN" value="1" min="1" max="{{ accounts|length }}"
-             style="width:60px; font-family:var(--font-mono); font-size:12px;" />
-      <span style="font-size:11px; color:var(--text-secondary); letter-spacing:.08em; white-space:nowrap;">accounts</span>
-      <button type="button" id="quickSelectBtn" class="small">Select</button>
-      <div style="margin-left:auto; display:flex; gap:var(--sp-sm);">
-        <button type="button" id="pickerSelectAll" class="small">All</button>
-        <button type="button" id="pickerClearAll" class="small">Clear</button>
+    <!-- Group filter + quick-select bar -->
+    <div style="display:flex; flex-direction:column; gap:var(--sp-sm); padding:var(--sp-md) var(--sp-lg); border-bottom:1px solid var(--border); flex-shrink:0;">
+      <!-- Group filter -->
+      <div style="display:flex; gap:var(--sp-xs);">
+        {% for grp in ["All", "Masovka", "Chatter", "Influencer"] %}
+        <button type="button" class="picker-group-btn{% if grp == 'All' %} selected{% endif %}" data-group="{{ grp }}"
+          style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px;border-radius:4px;border:1px solid var(--border-visible);background:{% if grp == 'All' %}var(--text-display){% else %}transparent{% endif %};color:{% if grp == 'All' %}var(--black){% else %}var(--text-secondary){% endif %};cursor:pointer;">
+          {{ grp }}
+        </button>
+        {% endfor %}
+      </div>
+      <!-- Quick select row -->
+      <div style="display:flex; align-items:center; gap:var(--sp-sm);">
+        <span style="font-size:11px; color:var(--text-secondary); letter-spacing:.08em; white-space:nowrap;">First</span>
+        <input type="number" id="quickSelectN" value="1" min="1" max="{{ accounts|length }}"
+               style="width:60px; font-family:var(--font-mono); font-size:12px;" />
+        <span style="font-size:11px; color:var(--text-secondary); letter-spacing:.08em; white-space:nowrap;">accounts</span>
+        <button type="button" id="quickSelectBtn" class="small">Select</button>
+        <div style="margin-left:auto; display:flex; gap:var(--sp-sm);">
+          <button type="button" id="pickerSelectAll" class="small">All</button>
+          <button type="button" id="pickerClearAll" class="small">Clear</button>
+        </div>
       </div>
     </div>
 
@@ -181,15 +193,23 @@
     <div class="modal__body" style="overflow-y:auto; flex:1; padding:0;">
       <div class="rowlist">
         {% for a in accounts %}
-        <label class="rowlist__row" style="cursor:pointer;">
-          <input type="checkbox" class="picker-check" value="{{ a.id }}" />
-          <span class="rowlist__primary">{{ a.email }}</span>
-          <span class="rowlist__meta">{{ a.username }}</span>
-          <span class="status {% if a.joined_voice %}ok{% else %}muted{% endif %}">
-            {{ "in voice" if a.joined_voice else "—" }}
+        <div class="picker-row rowlist__row" data-group="{{ a.group }}" style="display:flex; align-items:center; gap:var(--sp-sm); padding:8px 12px;">
+          <input type="checkbox" class="picker-check" value="{{ a.id }}" style="flex-shrink:0;" />
+          <span class="rowlist__primary" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ a.email }}">{{ a.email }}</span>
+          <span class="rowlist__meta" style="flex-shrink:0;">{{ a.username }}</span>
+          <span class="status {% if a.joined_voice %}ok{% else %}muted{% endif %}" style="flex-shrink:0;">
+            {{ "IN VOICE" if a.joined_voice else "—" }}
           </span>
-          <span style="font-size:10px; color:var(--text-disabled); font-family:var(--font-mono);">{{ a.voice_channel_id or '' }}</span>
-        </label>
+          {% if a.joined_voice %}
+          <button type="button"
+            class="small mute-toggle-btn"
+            data-id="{{ a.id }}"
+            data-muted="{{ 'true' if a.voice_muted else 'false' }}"
+            style="flex-shrink:0; font-size:10px; min-width:72px;">
+            {{ "🎙 Unmute" if a.voice_muted else "🔇 Mute" }}
+          </button>
+          {% endif %}
+        </div>
         {% else %}
         <p class="muted" style="padding:var(--sp-md)">No accounts on server yet.</p>
         {% endfor %}
@@ -220,11 +240,33 @@ function escapeHtml(s) {
 }
 
 // ── Account picker state ─────────────────────────────────────────────────────
-let voiceSelection = new Set();   // account IDs for Voice connections
-let streamSelection = new Set();  // account IDs for Watch stream
-let currentTarget = null;         // 'voice' | 'stream'
+let voiceSelection = new Set();
+let streamSelection = new Set();
+let currentTarget = null;
+let currentGroup = "All";
 
 const pickerModal = document.getElementById("accountPickerModal");
+
+function visibleRows() {
+  return [...document.querySelectorAll(".picker-row")].filter(r => r.style.display !== "none");
+}
+
+function applyGroupFilter(group) {
+  currentGroup = group;
+  document.querySelectorAll(".picker-group-btn").forEach(b => {
+    const active = b.dataset.group === group;
+    b.style.background = active ? "var(--text-display)" : "transparent";
+    b.style.color = active ? "var(--black)" : "var(--text-secondary)";
+    b.style.borderColor = active ? "var(--text-display)" : "var(--border-visible)";
+  });
+  document.querySelectorAll(".picker-row").forEach(row => {
+    row.style.display = (group === "All" || row.dataset.group === group) ? "flex" : "none";
+  });
+  // update max on quick-select input
+  const visCount = visibleRows().length;
+  document.getElementById("quickSelectN").max = visCount;
+  updatePickerFooter();
+}
 
 function openPicker(target) {
   currentTarget = target;
@@ -234,7 +276,7 @@ function openPicker(target) {
   document.querySelectorAll(".picker-check").forEach(cb => {
     cb.checked = sel.has(cb.value);
   });
-  updatePickerFooter();
+  applyGroupFilter("All");
   pickerModal.hidden = false;
 }
 
@@ -246,8 +288,12 @@ function updatePickerFooter() {
 document.getElementById("pickerClose").addEventListener("click", () => { pickerModal.hidden = true; });
 pickerModal.addEventListener("click", e => { if (e.target === pickerModal) pickerModal.hidden = true; });
 
+document.querySelectorAll(".picker-group-btn").forEach(btn =>
+  btn.addEventListener("click", () => applyGroupFilter(btn.dataset.group))
+);
+
 document.getElementById("pickerSelectAll").addEventListener("click", () => {
-  document.querySelectorAll(".picker-check").forEach(cb => cb.checked = true);
+  visibleRows().forEach(row => row.querySelector(".picker-check").checked = true);
   updatePickerFooter();
 });
 document.getElementById("pickerClearAll").addEventListener("click", () => {
@@ -260,7 +306,7 @@ document.querySelectorAll(".picker-check").forEach(cb =>
 
 document.getElementById("quickSelectBtn").addEventListener("click", () => {
   const n = Math.max(0, parseInt(document.getElementById("quickSelectN").value) || 0);
-  document.querySelectorAll(".picker-check").forEach((cb, i) => cb.checked = i < n);
+  visibleRows().forEach((row, i) => row.querySelector(".picker-check").checked = i < n);
   updatePickerFooter();
 });
 
@@ -278,6 +324,31 @@ document.getElementById("pickerConfirm").addEventListener("click", () => {
 
 document.getElementById("voicePickBtn").addEventListener("click", () => openPicker("voice"));
 document.getElementById("streamPickBtn").addEventListener("click", () => openPicker("stream"));
+
+// ── Mute / unmute ─────────────────────────────────────────────────────────────
+document.querySelectorAll(".mute-toggle-btn").forEach(btn => {
+  btn.addEventListener("click", async e => {
+    e.preventDefault(); e.stopPropagation();
+    const id = btn.dataset.id;
+    const currentlyMuted = btn.dataset.muted === "true";
+    const newMute = !currentlyMuted;
+    btn.disabled = true;
+    btn.textContent = "…";
+    const r = await fetch("/api/voice/mute", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id: id, mute: newMute }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (d.ok) {
+      btn.dataset.muted = String(newMute);
+      btn.textContent = newMute ? "🎙 Unmute" : "🔇 Mute";
+    } else {
+      btn.textContent = "Error";
+    }
+    btn.disabled = false;
+  });
+});
 
 // ── Saved voice channels ─────────────────────────────────────────────────────
 async function loadVcList() {

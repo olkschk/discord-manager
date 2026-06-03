@@ -69,6 +69,18 @@ async def disconnect(body: VoiceLeaveBody) -> dict:
     return {"closed": len(body.account_ids)}
 
 
+class VoiceMuteBody(BaseModel):
+    account_id: str
+    mute: bool
+
+
+@router.post("/mute")
+async def mute_account(body: VoiceMuteBody) -> dict:
+    """Toggle self_mute for an account already in a voice channel."""
+    ok = await gateway_pool.set_mute(body.account_id, body.mute)
+    return {"ok": ok}
+
+
 # ── Audio playback ───────────────────────────────────────────────────────────
 @router.get("/sounds")
 async def get_sounds() -> list[str]:

@@ -150,6 +150,22 @@ async def join_voice(
     return True
 
 
+async def set_mute(account_id: str, mute: bool) -> bool:
+    """Send VOICE_STATE_UPDATE with new self_mute value, keeping current channel."""
+    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    if not acc or not acc.get("voice_guild_id") or not acc.get("voice_channel_id"):
+        return False
+    conn = await get_or_create(account_id)
+    if conn is None:
+        return False
+    await conn.join_voice(acc["voice_guild_id"], acc["voice_channel_id"], mute=mute, deaf=False)
+    await discords().update_one(
+        {"_id": ObjectId(account_id)},
+        {"$set": {"voice_muted": mute}},
+    )
+    return True
+
+
 async def join_stage(
     account_id: str, guild_id: str, channel_id: str
 ) -> bool:

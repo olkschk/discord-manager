@@ -104,8 +104,11 @@ async def voice_page(
                 "id": str(acc["_id"]),
                 "email": acc["email"],
                 "username": acc.get("username") or acc["email"],
+                "group": acc.get("group", "Masovka"),
                 "joined_voice": acc.get("joined_voice", False),
                 "voice_channel_id": acc.get("voice_channel_id"),
+                "voice_guild_id": acc.get("voice_guild_id"),
+                "voice_muted": acc.get("voice_muted", True),
             }
         )
     return templates.TemplateResponse(
