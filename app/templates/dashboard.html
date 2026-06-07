@@ -77,6 +77,25 @@
         </div>
       </div>
 
+      <!-- Filter / sort bar -->
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-sm); margin-bottom:var(--sp-sm);">
+        <input type="text" id="inventorySearch" placeholder="Search by email, username, name…"
+               style="flex:1; min-width:200px; font-family:var(--font-mono); font-size:12px;
+                      background:var(--black); border:1px solid var(--border-visible);
+                      border-radius:4px; padding:6px 10px; color:var(--text-primary);" />
+        <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;color:var(--text-secondary);">Group:</span>
+        {% for grp in ["All", "Masovka", "Chatter", "Influencer"] %}
+        <button type="button" class="inv-group-btn{% if grp == 'All' %} selected{% endif %}" data-group="{{ grp }}"
+          style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+                 padding:4px 10px;border-radius:4px;border:1px solid var(--border-visible);cursor:pointer;
+                 background:{% if grp == 'All' %}var(--text-display){% else %}transparent{% endif %};
+                 color:{% if grp == 'All' %}var(--black){% else %}var(--text-secondary){% endif %};">
+          {{ grp }}
+        </button>
+        {% endfor %}
+        <span id="inventoryCount" style="font-family:var(--font-mono);font-size:10px;color:var(--text-disabled); margin-left:auto;"></span>
+      </div>
+
       <!-- Bulk toolbar -->
       <div class="panel" id="bulkToolbar" style="margin-bottom:var(--sp-md);">
         <div style="display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-sm);">
@@ -127,7 +146,11 @@
           </thead>
           <tbody>
             {% for a in accounts %}
-            <tr data-id="{{ a.id }}">
+            <tr data-id="{{ a.id }}"
+                data-group="{{ a.group }}"
+                data-email="{{ a.email | lower }}"
+                data-username="{{ a.username | lower }}"
+                data-name="{{ a.name | lower }}">
               <td><input type="checkbox" class="row-check" value="{{ a.id }}"></td>
               <td class="email">
                 {% if a.is_donor %}<span class="donor-badge" title="Donor — drives topic monitor">DONOR</span>{% endif %}
@@ -156,16 +179,40 @@
               <td class="row-actions">
                 <button type="button" class="small row-inbox">Inbox</button>
                 <button type="button" class="small row-reset">Reset pw</button>
+                <button type="button" class="small row-token" data-token="{{ a.discord_token }}">Token</button>
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="11" class="empty">No accounts yet — ingest some above</td></tr>
+            <tr><td colspan="12" class="empty">No accounts yet — ingest some above</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </section>
   </main>
+</div>
+
+<!-- Token modal -->
+<div id="tokenModal" class="modal" hidden>
+  <div class="modal__panel" style="max-width:540px;">
+    <header class="modal__head">
+      <h3 class="panel__title">Discord Token</h3>
+      <button type="button" class="link" id="tokenModalClose">Close ×</button>
+    </header>
+    <div class="modal__body" style="gap:var(--sp-md);">
+      <p class="panel__hint" style="color:var(--warning);">⚠ Keep this token private — it grants full account access.</p>
+      <div style="position:relative;">
+        <textarea id="tokenModalValue" readonly rows="4"
+          style="width:100%;font-family:var(--font-mono);font-size:11px;
+                 background:var(--black);border:1px solid var(--border-visible);
+                 border-radius:4px;padding:8px 10px;color:var(--text-primary);
+                 resize:none;word-break:break-all;"></textarea>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:var(--sp-sm);">
+        <button type="button" class="small" id="tokenCopyBtn">Copy</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Inbox modal — populated on row "Inbox" click -->

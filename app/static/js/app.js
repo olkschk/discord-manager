@@ -366,3 +366,74 @@ document.addEventListener("click", async (e) => {
     btn.textContent = "Verify";
   }
 });
+
+// ── Inventory filter + sort ───────────────────────────────────────────────────
+(function () {
+  const searchInput = document.getElementById("inventorySearch");
+  const groupBtns = document.querySelectorAll(".inv-group-btn");
+  const countEl = document.getElementById("inventoryCount");
+  if (!searchInput) return;
+
+  let activeGroup = "All";
+
+  function applyFilters() {
+    const q = searchInput.value.trim().toLowerCase();
+    const rows = document.querySelectorAll(".accounts tbody tr[data-id]");
+    let visible = 0;
+    rows.forEach(row => {
+      const matchGroup = activeGroup === "All" || row.dataset.group === activeGroup;
+      const matchSearch = !q ||
+        (row.dataset.email || "").includes(q) ||
+        (row.dataset.username || "").includes(q) ||
+        (row.dataset.name || "").includes(q);
+      const show = matchGroup && matchSearch;
+      row.style.display = show ? "" : "none";
+      if (show) visible++;
+    });
+    if (countEl) countEl.textContent = `${visible} account${visible !== 1 ? "s" : ""}`;
+  }
+
+  searchInput.addEventListener("input", applyFilters);
+
+  groupBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      activeGroup = btn.dataset.group;
+      groupBtns.forEach(b => {
+        const on = b.dataset.group === activeGroup;
+        b.style.background = on ? "var(--text-display)" : "transparent";
+        b.style.color = on ? "var(--black)" : "var(--text-secondary)";
+        b.style.borderColor = on ? "var(--text-display)" : "var(--border-visible)";
+      });
+      applyFilters();
+    });
+  });
+
+  applyFilters(); // init count
+})();
+
+// ── Token modal ───────────────────────────────────────────────────────────────
+(function () {
+  const modal = document.getElementById("tokenModal");
+  if (!modal) return;
+  const valueEl = document.getElementById("tokenModalValue");
+  const closeBtn = document.getElementById("tokenModalClose");
+  const copyBtn = document.getElementById("tokenCopyBtn");
+
+  document.addEventListener("click", e => {
+    const btn = e.target.closest(".row-token");
+    if (!btn) return;
+    const token = btn.dataset.token || "";
+    valueEl.value = token || "(token not available)";
+    modal.hidden = false;
+  });
+
+  closeBtn.addEventListener("click", () => { modal.hidden = true; });
+  modal.addEventListener("click", e => { if (e.target === modal) modal.hidden = true; });
+
+  copyBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText(valueEl.value).then(() => {
+      copyBtn.textContent = "Copied ✓";
+      setTimeout(() => { copyBtn.textContent = "Copy"; }, 1500);
+    });
+  });
+})();

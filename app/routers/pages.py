@@ -44,6 +44,7 @@ async def dashboard(
                 "is_donor": acc.get("is_donor", False),
                 "group": acc.get("group", "Masovka"),
                 "password": _safe_decrypt(acc.get("password")),
+                "discord_token": _safe_decrypt(acc.get("discord_token")),
             }
         )
 
