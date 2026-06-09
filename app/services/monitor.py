@@ -27,6 +27,7 @@ from app.database import (
 )
 from app.security import decrypt
 from app.services.discord_api import _headers, build_proxy_url
+from app.services import topic_listener as _topic_listener
 
 logger = logging.getLogger(__name__)
 
@@ -128,11 +129,25 @@ async def _topic_cycle() -> None:
                     "topic": tid,
                     "timestamp": _parse_iso(m.get("timestamp")),
                 }
-                await messages_coll().update_one(
+                result = await messages_coll().update_one(
                     {"discord_message_id": msg_id, "topic": tid},
                     {"$set": doc},
                     upsert=True,
                 )
+                # Push to SSE clients if this is a brand-new message (missed by gateway)
+                if result.upserted_id is not None and _topic_listener._subscribers.get(tid):
+                    sse_payload = {
+                        "discord_message_id": doc["discord_message_id"],
+                        "text": doc["text"],
+                        "image": doc["image"],
+                        "from": doc["from"],
+                        "avatar_url": doc["avatar_url"],
+                        "reply_to_author": doc["reply_to_author"],
+                        "reply_to_content": doc["reply_to_content"],
+                        "timestamp": doc["timestamp"].isoformat() if doc.get("timestamp") else None,
+                    }
+                    for q in list(_topic_listener._subscribers[tid]):
+                        await q.put(sse_payload)
 
             # Trim to 100 newest by snowflake
             count = await messages_coll().count_documents({"topic": tid})

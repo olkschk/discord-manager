@@ -493,8 +493,10 @@ function buildMsgEl(m) {
   return el;
 }
 
-// Append a single new message (called by SSE)
+// Append a single new message (called by SSE or local inject)
 function appendMessage(m) {
+  // Deduplicate: skip if this discord_message_id is already rendered
+  if (m.discord_message_id && messagesEl.querySelector(`[data-id="${m.discord_message_id}"]`)) return;
   const empty = messagesEl.querySelector(".messages__empty");
   if (empty) empty.remove();
   const atBottom = messagesEl.scrollHeight - messagesEl.clientHeight <= messagesEl.scrollTop + 80;
@@ -504,6 +506,18 @@ function appendMessage(m) {
   document.getElementById("messageCount").textContent = `${count} stored`;
 }
 
+// Smart refresh — only appends messages not yet in DOM (called on SSE reconnect)
+async function refreshNewMessages() {
+  if (!currentTopic) return;
+  try {
+    const r = await fetch(`/api/chat/topic/${currentTopic}/messages`);
+    const data = await r.json();
+    const existing = new Set([...messagesEl.querySelectorAll("[data-id]")].map(el => el.dataset.id).filter(Boolean));
+    data.filter(m => m.discord_message_id && !existing.has(m.discord_message_id))
+        .forEach(m => appendMessage(m));
+  } catch {}
+}
+
 // SSE connection — receives new messages instantly from the gateway listener
 let _topicSSE = null;
 function connectTopicSSE(topicId) {
@@ -511,10 +525,23 @@ function connectTopicSSE(topicId) {
   if (!topicId) return;
   const es = new EventSource(`/api/chat/topic/${topicId}/stream`);
   es.onmessage = (e) => {
-    try { appendMessage(JSON.parse(e.data)); } catch {}
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "delete") {
+        // Mark deleted message in DOM
+        const el = messagesEl.querySelector(`[data-id="${msg.discord_message_id}"]`);
+        if (el) {
+          const textEl = el.querySelector(".msg__text");
+          if (textEl) { textEl.textContent = "[deleted]"; textEl.style.color = "var(--text-disabled)"; }
+        }
+      } else {
+        appendMessage(msg);
+      }
+    } catch {}
   };
   es.onerror = () => {
-    // Browser auto-reconnects EventSource after network blip — no manual action needed
+    // On reconnect, fetch any messages missed during the disconnect window
+    setTimeout(refreshNewMessages, 1500);
   };
   _topicSSE = es;
 }
@@ -618,6 +645,20 @@ document.getElementById("sendForm").addEventListener("submit", async (e) => {
   setReply(null);  // always clear reply chip after send attempt
   if (resp.ok && d.sent) {
     out.className="result ok"; out.textContent = file ? `Sent · ${d.files} file(s)` : "Sent";
+    // Immediately inject the sent message into the UI (don't wait for SSE echo)
+    const accBtn = document.querySelector(`.acc-icon-btn[data-id="${accountId}"]`);
+    const username = accBtn?.querySelector("span")?.textContent?.trim() || "?";
+    const avatarUrl = accBtn?.querySelector("img")?.src || null;
+    appendMessage({
+      discord_message_id: d.message_id || "",
+      text,
+      image: null,
+      from: username,
+      avatar_url: avatarUrl,
+      reply_to_author: null,
+      reply_to_content: null,
+      timestamp: new Date().toISOString(),
+    });
     document.getElementById("sendText").value=""; fileInput.value=""; fileLabel.textContent="Attach file";
   } else { out.className="result err"; out.textContent = d.error || "Failed"; }
 });

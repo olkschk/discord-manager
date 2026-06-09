@@ -78,6 +78,21 @@ def _build_identify_props() -> dict:
     }
 
 
+async def _handle_delete(data: dict, topic_id: str) -> None:
+    """Mark a deleted message in DB and notify SSE clients."""
+    msg_id = data.get("id")
+    if not msg_id:
+        return
+    await messages_coll().update_one(
+        {"discord_message_id": msg_id, "topic": topic_id},
+        {"$set": {"text": "[deleted]", "deleted": True}},
+    )
+    if _subscribers[topic_id]:
+        payload = {"type": "delete", "discord_message_id": msg_id}
+        for q in list(_subscribers[topic_id]):
+            await q.put(payload)
+
+
 async def _save_message(data: dict, topic_id: str) -> None:
     """Save a MESSAGE_CREATE payload to the messages collection."""
     author = data.get("author") or {}
@@ -294,6 +309,12 @@ async def _run_listener() -> None:
                                 if ch_id in topic_ids:
                                     await _save_message(data, ch_id)
                                     logger.debug("topic_listener: saved message in %s", ch_id)
+
+                            elif event == "MESSAGE_DELETE":
+                                ch_id = str(data.get("channel_id", ""))
+                                if ch_id in topic_ids:
+                                    await _handle_delete(data, ch_id)
+                                    logger.debug("topic_listener: deleted message in %s", ch_id)
 
                         elif op in (7, 9):
                             break
