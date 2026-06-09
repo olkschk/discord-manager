@@ -115,14 +115,29 @@
           <p class="messages__empty">Open a topic to load messages.</p>
         </div>
 
-        <form id="sendForm" class="send" style="border-top:1px solid var(--border); border-radius:0; padding:var(--sp-md) var(--sp-lg); gap:var(--sp-sm);">
+        <form id="sendForm" class="send" style="border-top:1px solid var(--border); border-radius:0; padding:var(--sp-md) var(--sp-lg); gap:var(--sp-sm); position:relative;">
           <div class="send__row">
             <span id="replyChip" class="reply-chip" style="display:none;">
               ↩ <code id="replyId"></code>
               <button type="button" id="cancelReply">×</button>
             </span>
           </div>
-          <textarea id="sendText" rows="2" placeholder="Write a message…" maxlength="2000"></textarea>
+          <div style="position:relative;">
+            <textarea id="sendText" rows="2" placeholder="Write a message…" maxlength="2000" style="padding-right:36px;"></textarea>
+            <button type="button" id="emojiPickerBtn" title="Emoji"
+              style="position:absolute;right:6px;bottom:6px;background:none;border:none;cursor:pointer;font-size:16px;line-height:1;padding:2px;color:var(--text-secondary);transition:color 150ms;"
+              onmouseenter="this.style.color='var(--text-display)'" onmouseleave="this.style.color='var(--text-secondary)'">😊</button>
+          </div>
+          <!-- Emoji picker popup -->
+          <div id="emojiPicker" hidden
+            style="position:absolute;z-index:200;bottom:calc(100% + 6px);right:var(--sp-lg);
+                   background:var(--surface-raised);border:1px solid var(--border-visible);border-radius:6px;
+                   padding:8px;width:280px;box-shadow:0 4px 16px rgba(0,0,0,.5);">
+            <div style="font-family:var(--font-mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-disabled);margin-bottom:6px;">Standard</div>
+            <div id="emojiStd" style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:8px;"></div>
+            <div style="font-family:var(--font-mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-disabled);margin-bottom:6px;">Server</div>
+            <div id="emojiCustom" style="display:flex;flex-wrap:wrap;gap:2px;"></div>
+          </div>
           <div class="send__row">
             <label class="file-pick">
               <input type="file" id="sendFile" accept="image/*,video/*,audio/*,application/*" />
@@ -1099,6 +1114,79 @@ document.querySelectorAll(".sched-quick").forEach(btn => {
     }
   });
 });
+
+// ── Emoji picker ─────────────────────────────────────────────────────────────
+(function () {
+  const STD = ["😂","❤️","🔥","👍","✅","🚀","💯","👀","🤝","⚡","😎","🤣","💀","🎉","🤔","😍","💪","🙏","😭","🫡"];
+  const CUSTOM = [
+    {name:"Panik",        id:"1511791533249269830"},
+    {name:"peepostonks",  id:"1511791627688087672"},
+    {name:"poocoin",      id:"1511791726405222604"},
+    {name:"KEKW",         id:"1511792141528076369"},
+    {name:"PepeSmoke",    id:"1511792344255434782"},
+    {name:"PepegaCredit", id:"1511792271455031468"},
+    {name:"boohoo",       id:"1511792167524503652"},
+    {name:"dwhaleemoji",  id:"1511791667198300190"},
+    {name:"gays",         id:"1511792114420420628"},
+    {name:"hodl",         id:"1511791698450186421"},
+    {name:"notstonks",    id:"1511791754741813381"},
+    {name:"peepoSignedSimp", id:"1511792288286773271"},
+    {name:"peeponotstonks",  id:"1511791582200987710"},
+    {name:"pepecrypto",   id:"1511791554149355660"},
+    {name:"pepecrypto2",  id:"1511791796701757500"},
+    {name:"pousob",       id:"1511791607568142408"},
+    {name:"shrug",        id:"1511792079351582780"},
+    {name:"woah",         id:"1511791974900826253"},
+  ];
+
+  const picker = document.getElementById("emojiPicker");
+  const btn    = document.getElementById("emojiPickerBtn");
+  const ta     = document.getElementById("sendText");
+
+  // Render standard emojis
+  document.getElementById("emojiStd").innerHTML = STD.map(e =>
+    `<button type="button" class="ep-btn" data-insert="${e}" title="${e}"
+      style="background:none;border:none;cursor:pointer;font-size:20px;padding:3px;border-radius:4px;line-height:1;transition:background 100ms;"
+      onmouseenter="this.style.background='var(--surface)'" onmouseleave="this.style.background='none'">${e}</button>`
+  ).join("");
+
+  // Render custom server emojis as small CDN images
+  document.getElementById("emojiCustom").innerHTML = CUSTOM.map(e => {
+    const tag    = `<:${e.name}:${e.id}>`;
+    const imgUrl = `https://cdn.discordapp.com/emojis/${e.id}.webp?size=32&quality=lossless`;
+    return `<button type="button" class="ep-btn" data-insert="${escapeHtml(tag)}" title="${e.name}"
+      style="background:none;border:none;cursor:pointer;padding:3px;border-radius:4px;transition:background 100ms;"
+      onmouseenter="this.style.background='var(--surface)'" onmouseleave="this.style.background='none'">
+      <img src="${imgUrl}" alt="${e.name}" style="width:24px;height:24px;object-fit:contain;vertical-align:middle;" loading="lazy"/>
+    </button>`;
+  }).join("");
+
+  // Insert emoji at cursor
+  picker.addEventListener("click", e => {
+    const b = e.target.closest(".ep-btn");
+    if (!b) return;
+    const ins   = b.dataset.insert;
+    const start = ta.selectionStart;
+    const end   = ta.selectionEnd;
+    ta.value    = ta.value.slice(0, start) + ins + ta.value.slice(end);
+    const pos   = start + ins.length;
+    ta.focus();
+    ta.setSelectionRange(pos, pos);
+    picker.hidden = true;
+  });
+
+  // Toggle picker
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    picker.hidden = !picker.hidden;
+  });
+
+  // Close on outside click
+  document.addEventListener("click", e => {
+    if (!picker.hidden && !picker.contains(e.target) && e.target !== btn)
+      picker.hidden = true;
+  });
+})();
 
 // Cancel queue
 document.getElementById("reactCancelBtn").addEventListener("click", () => {
