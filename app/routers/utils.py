@@ -312,8 +312,8 @@ async def setup_two_fa(
 
 # ── Activity (gateway PRESENCE_UPDATE) ──────────────────────────────────────
 from app.services.activity_templates import (  # noqa: E402
-    GAME_NAMES, GAMES, SPOTIFY_TRACKS,
-    build_game_activity, build_random_activity, build_spotify_activity,
+    GAME_NAMES, GAMES,
+    build_game_activity, build_random_activity,
 )
 
 
@@ -325,25 +325,24 @@ class ActivityBody(BaseModel):
 
 @router.get("/activity/templates")
 async def get_activity_templates() -> dict:
-    return {
-        "games": GAME_NAMES,
-        "spotify_sample": f"{SPOTIFY_TRACKS[0]['title']} — {SPOTIFY_TRACKS[0]['artist']}",
-    }
+    return {"games": GAME_NAMES}
 
 
 @router.post("/activity")
 async def set_activity(body: ActivityBody) -> dict:
-    """Set Spotify or game activity on N accounts."""
+    """Set a game activity (specific or random) on N accounts."""
     results: list[dict] = []
     for acc_id in body.account_ids:
-        if body.mode == "spotify":
-            act = await build_spotify_activity()
-        elif body.mode == "game":
+        if body.mode == "game":
             game = next((g for g in GAMES if g["name"] == body.game_name), None)
-            act = build_game_activity(game)
+            act = await build_game_activity(game)
         else:
             act = await build_random_activity()
         ok = await gateway_pool.set_activity(acc_id, activity=act)
+        if ok and body.mode == "random":
+            gateway_pool.start_activity_rotation(acc_id)
+        else:
+            gateway_pool.stop_activity_rotation(acc_id)
         results.append({"account_id": acc_id, "ok": ok, "activity_name": act.get("name")})
     return {"results": results}
 

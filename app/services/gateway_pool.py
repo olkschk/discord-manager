@@ -12,11 +12,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 
 from bson import ObjectId
 
 from app.database import discords, proxies as proxies_coll
 from app.security import decrypt
+from app.services.activity_templates import build_random_activity
 from app.services.discord_api import build_proxy_url, set_user_status
 from app.services.gateway_client import GatewayConnection
 
@@ -24,7 +26,12 @@ logger = logging.getLogger(__name__)
 
 
 _connections: dict[str, GatewayConnection] = {}
+_rotation_tasks: dict[str, asyncio.Task] = {}
 _lock = asyncio.Lock()
+
+# How often a random activity is swapped for another one.
+_ROTATION_MIN_SECONDS = 10 * 60
+_ROTATION_MAX_SECONDS = 60 * 60
 
 
 async def _resolve_proxy(acc: dict) -> str | None:
@@ -73,6 +80,7 @@ async def get_or_create(account_id: str) -> GatewayConnection | None:
 
 
 async def close_one(account_id: str) -> None:
+    stop_activity_rotation(account_id)
     async with _lock:
         conn = _connections.pop(account_id, None)
     if conn is not None:
@@ -80,6 +88,8 @@ async def close_one(account_id: str) -> None:
 
 
 async def close_all() -> None:
+    for account_id in list(_rotation_tasks):
+        stop_activity_rotation(account_id)
     async with _lock:
         items = list(_connections.items())
         _connections.clear()
@@ -88,6 +98,36 @@ async def close_all() -> None:
             await conn.close()
         except Exception:  # noqa: BLE001
             logger.exception("error closing gateway connection")
+
+
+# ── Activity rotation (random activity swapped every 10-60 minutes) ────────
+async def _rotation_loop(account_id: str) -> None:
+    try:
+        while True:
+            delay = random.randint(_ROTATION_MIN_SECONDS, _ROTATION_MAX_SECONDS)
+            await asyncio.sleep(delay)
+            act = await build_random_activity()
+            await set_activity(account_id, activity=act)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.exception("activity rotation crashed for %s", account_id)
+
+
+def start_activity_rotation(account_id: str) -> None:
+    """(Re)start the background task that periodically swaps the account's activity."""
+    existing = _rotation_tasks.get(account_id)
+    if existing is not None and not existing.done():
+        existing.cancel()
+    _rotation_tasks[account_id] = asyncio.create_task(
+        _rotation_loop(account_id), name=f"activity-rotation-{account_id}"
+    )
+
+
+def stop_activity_rotation(account_id: str) -> None:
+    task = _rotation_tasks.pop(account_id, None)
+    if task is not None and not task.done():
+        task.cancel()
 
 
 def is_connected(account_id: str) -> bool:
@@ -116,6 +156,7 @@ async def set_activity(
 
 
 async def clear_activity(account_id: str) -> bool:
+    stop_activity_rotation(account_id)
     conn = _connections.get(account_id)
     if conn is None:
         # Nothing to clear at WS level; just clear the DB record.

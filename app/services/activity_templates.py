@@ -40,6 +40,34 @@ async def _fetch_spotify_image_id(track_id: str) -> str | None:
     return None
 
 
+# Cache: application_id → app icon hash (e.g. "5b86f62727932b...")
+_app_icon_cache: dict[str, str | None] = {}
+
+
+async def _fetch_app_icon_hash(app_id: str) -> str | None:
+    """Fetch an application's icon hash from Discord's public RPC endpoint (no auth).
+
+    `assets.large_image` for a fake rich-presence activity must reference this
+    icon hash (served from cdn.discordapp.com/app-icons/{app_id}/{hash}.png) —
+    not the app's Public Key or Client ID, which don't resolve to any image.
+    """
+    if app_id in _app_icon_cache:
+        return _app_icon_cache[app_id]
+    try:
+        url = f"https://discord.com/api/v9/applications/{app_id}/rpc"
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
+                if r.status == 200:
+                    data = await r.json()
+                    icon = data.get("icon")
+                    _app_icon_cache[app_id] = icon
+                    return icon
+    except Exception as exc:
+        logger.debug("App icon fetch failed for %s: %s", app_id, exc)
+    _app_icon_cache[app_id] = None
+    return None
+
+
 SPOTIFY_TRACKS = [
     {"title": "God's Plan",          "artist": "Drake",              "album": "Scorpion",                  "duration": 198000, "track_id": "4oMpZxPhFpuuvmqr5QWGCM"},
     {"title": "HUMBLE.",             "artist": "Kendrick Lamar",     "album": "DAMN.",                     "duration": 177000, "track_id": "7KXjTSCq5nL1LoYtL7XAwS"},
@@ -77,31 +105,27 @@ GAMES = [
     {
         "name": "Counter-Strike 2",
         "app_id": "1510661633859522781",
-        "large_image": "logo",
         "large_text": "Counter-Strike 2",
         "details": ["Competitive • Mirage", "Competitive • Dust 2", "Competitive • Inferno", "Premier • Mirage", "Deathmatch • Dust 2"],
-        "state": ["CT Side • 12 : 5", "T Side • 8 : 10", "CT Side • 14 : 9", "T Side • 3 : 7", "CT Side • 6 : 6"],
+        "state": ["CT Side", "T Side"],
     },
     {
         "name": "VALORANT",
         "app_id": "1510663126847062256",
-        "large_image": "logo",
         "large_text": "VALORANT",
         "details": ["Competitive • Ascent", "Competitive • Haven", "Unrated • Sunset", "Competitive • Lotus", "Deathmatch"],
-        "state": ["Attack • 5 : 4", "Defense • 8 : 7", "Attack • 11 : 10", "Defense • 3 : 6"],
+        "state": ["Attack", "Defense"],
     },
     {
         "name": "PUBG: BATTLEGROUNDS",
         "app_id": "1510664180590448740",
-        "large_image": "logo",
         "large_text": "PUBG: BATTLEGROUNDS",
         "details": ["Normal • Erangel", "Ranked • Miramar", "Normal • Sanhok", "Normal • Vikendi"],
-        "state": ["Top 10 • 3 kills", "Squad • Alive", "Looting", "In a vehicle"],
+        "state": ["Squad • Alive", "Looting", "In a vehicle", "Parachuting"],
     },
     {
         "name": "Spotify",
         "app_id": "1510666707746689034",
-        "large_image": "logo",
         "large_text": "Spotify",
         "details": ["Listening to music", "Discovering Weekly", "Daily Mix 1", "Liked Songs"],
         "state": ["Shuffle mode on", "Playing playlist", "Radio"],
@@ -109,7 +133,6 @@ GAMES = [
     {
         "name": "Visual Studio Code",
         "app_id": "1510667611937968340",
-        "large_image": "logo",
         "large_text": "Visual Studio Code",
         "details": ["Editing main.py", "Working on project", "Editing index.ts", "Debugging"],
         "state": ["In workspace", "Git: main", "No folder open"],
@@ -117,7 +140,6 @@ GAMES = [
     {
         "name": "Red Dead Redemption 2",
         "app_id": "1510668195671838840",
-        "large_image": "logo",
         "large_text": "Red Dead Redemption 2",
         "details": ["Story Mode", "Red Dead Online", "Exploring the map"],
         "state": ["Heartlands", "Saint Denis", "West Elizabeth", "New Hanover", "Ambarino"],
@@ -125,7 +147,6 @@ GAMES = [
     {
         "name": "League of Legends",
         "app_id": "1510669338896760873",
-        "large_image": "logo",
         "large_text": "League of Legends",
         "details": ["Ranked Solo • Summoner's Rift", "Normal • Summoner's Rift", "ARAM", "Flex Queue"],
         "state": ["Midlane • Mage", "ADC • Bot Lane", "Jungle", "Support • Bot Lane"],
@@ -133,7 +154,6 @@ GAMES = [
     {
         "name": "Arc Raiders",
         "app_id": "1510669637682069604",
-        "large_image": "logo",
         "large_text": "Arc Raiders",
         "details": ["In a raid", "Preparing loadout", "Scavenging resources"],
         "state": ["Solo", "Squad • 3 Players", "Heading to extraction"],
@@ -141,15 +161,13 @@ GAMES = [
     {
         "name": "Apex Legends",
         "app_id": "1510671868871311482",
-        "large_image": "logo",
         "large_text": "Apex Legends",
         "details": ["Battle Royale • Kings Canyon", "Battle Royale • World's Edge", "Ranked • Storm Point"],
-        "state": ["Squad • 2 Alive", "Solo • Top 10", "1 Kill • Looting"],
+        "state": ["Squad • Alive", "Solo • Top 10", "Looting"],
     },
     {
         "name": "YouTube Music",
         "app_id": "1510672565440614590",
-        "large_image": "logo",
         "large_text": "YouTube Music",
         "details": ["Listening to music", "Watching a music video", "Auto-play radio"],
         "state": ["Shuffle on", "Playing playlist", "Liked Music"],
@@ -192,30 +210,35 @@ async def build_spotify_activity(track: dict | None = None) -> dict:
     }
 
 
-def build_game_activity(game: dict | None = None) -> dict:
-    """Build a game activity payload. application_id makes Discord show the game icon."""
+async def build_game_activity(game: dict | None = None) -> dict:
+    """Build a game activity payload. application_id + the app's own icon hash
+    (fetched from Discord's public RPC endpoint) make Discord show the game icon."""
     g = game or random.choice(GAMES)
-    return {
+    activity: dict = {
         "type": 0,
         "name": g["name"],
         "application_id": g["app_id"],
         "details": random.choice(g["details"]),
         "state": random.choice(g["state"]),
-        "assets": {
-            "large_image": g["large_image"],
-            "large_text": g["large_text"],
-        },
         "timestamps": {
-            "start": int(time.time() * 1000) - random.randint(3_600_000, 28_800_000)
+            "start": int(time.time() * 1000) - random.randint(0, 180 * 60_000)
         },
     }
+    icon_hash = await _fetch_app_icon_hash(g["app_id"])
+    if icon_hash:
+        # "mp:app-icons/{app_id}/{hash}" is the media-proxy reference Discord clients
+        # resolve to cdn.discordapp.com/app-icons/... — a plain hash is not enough,
+        # it must use this prefix to be treated as a valid asset reference.
+        activity["assets"] = {
+            "large_image": f"mp:app-icons/{g['app_id']}/{icon_hash}.png",
+            "large_text": g["large_text"],
+        }
+    return activity
 
 
 async def build_random_activity() -> dict:
-    """50/50 Spotify or game."""
-    if random.random() < 0.5:
-        return await build_spotify_activity()
-    return build_game_activity()
+    """Pick a random game activity."""
+    return await build_game_activity()
 
 
 # Human-readable labels for the UI
