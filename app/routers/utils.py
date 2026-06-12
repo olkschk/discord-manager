@@ -361,6 +361,22 @@ async def clear_activity(body: ClearActivityBody) -> dict:
     return {"results": results}
 
 
+class SetStatusBody(BaseModel):
+    account_id: str
+    status: str = Field(..., pattern="^(online|idle|dnd|invisible)$")
+
+
+@router.post("/status")
+async def set_status(body: SetStatusBody) -> dict:
+    """Set presence status (online/idle/dnd/invisible) via gateway PRESENCE_UPDATE."""
+    if not ObjectId.is_valid(body.account_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
+    ok = await gateway_pool.set_status(body.account_id, body.status)
+    if not ok:
+        return {"ok": False, "error": "gateway_unavailable"}
+    return {"ok": True}
+
+
 @router.get("/2fa/{account_id}/code")
 async def get_two_fa_code(
     account_id: str,

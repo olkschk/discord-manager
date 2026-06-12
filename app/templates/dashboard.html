@@ -140,6 +140,7 @@
               <th>Token</th>
               <th>2FA</th>
               <th>Server</th>
+              <th>Status</th>
               <th>Group</th>
               <th></th>
             </tr>
@@ -175,6 +176,14 @@
                 {% endif %}
               </td>
               <td>{% if a.joined_server %}<span class="dot ok"></span>{% else %}<span class="dot"></span>{% endif %}</td>
+              <td>
+                <select class="small row-status" data-id="{{ a.id }}" style="font-size:10px;padding:2px 4px;">
+                  <option value="online" {% if a.status == "online" %}selected{% endif %}>🟢 Online</option>
+                  <option value="idle" {% if a.status == "idle" %}selected{% endif %}>🌙 Idle</option>
+                  <option value="dnd" {% if a.status == "dnd" %}selected{% endif %}>⛔ Do Not Disturb</option>
+                  <option value="invisible" {% if a.status == "invisible" %}selected{% endif %}>⚫ Invisible</option>
+                </select>
+              </td>
               <td><span class="group-label" style="font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;color:var(--text-secondary);">{{ a.group }}</span></td>
               <td class="row-actions">
                 <button type="button" class="small row-inbox">Inbox</button>
@@ -183,7 +192,7 @@
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="12" class="empty">No accounts yet — ingest some above</td></tr>
+            <tr><td colspan="13" class="empty">No accounts yet — ingest some above</td></tr>
             {% endfor %}
           </tbody>
         </table>

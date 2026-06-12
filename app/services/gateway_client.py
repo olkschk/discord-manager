@@ -190,6 +190,22 @@ class GatewayConnection:
             }
         )
 
+    async def update_presence(
+        self, *, status: str = "online", activities: list[dict] | None = None
+    ) -> None:
+        """Send PRESENCE_UPDATE with an explicit status (online/idle/dnd/invisible)."""
+        await self._send(
+            {
+                "op": OP_PRESENCE_UPDATE,
+                "d": {
+                    "since": None,
+                    "activities": activities or [],
+                    "status": status,
+                    "afk": False,
+                },
+            }
+        )
+
     async def clear_presence(self) -> None:
         await self._send(
             {

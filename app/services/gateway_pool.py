@@ -17,7 +17,7 @@ from bson import ObjectId
 
 from app.database import discords, proxies as proxies_coll
 from app.security import decrypt
-from app.services.discord_api import build_proxy_url
+from app.services.discord_api import build_proxy_url, set_user_status
 from app.services.gateway_client import GatewayConnection
 
 logger = logging.getLogger(__name__)
@@ -126,6 +126,50 @@ async def clear_activity(account_id: str) -> bool:
     await conn.clear_presence()
     await discords().update_one(
         {"_id": ObjectId(account_id)}, {"$unset": {"activity": ""}}
+    )
+    return True
+
+
+VALID_STATUSES = {"online", "idle", "dnd", "invisible"}
+
+
+async def set_status(account_id: str, status: str) -> bool:
+    """Set presence status (online/idle/dnd/invisible) via the settings-proto endpoint
+    (the same call the official client makes — gateway PRESENCE_UPDATE alone does not stick).
+    Also nudges the gateway connection (if any) so it doesn't override it on next heartbeat.
+    """
+    if status not in VALID_STATUSES:
+        return False
+    if not ObjectId.is_valid(account_id):
+        return False
+    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    if acc is None:
+        return False
+    try:
+        token = decrypt(acc["discord_token"])
+    except ValueError:
+        return False
+    proxy_url = await _resolve_proxy(acc)
+
+    # Discord's settings-proto endpoint silently normalizes a persisted "invisible"
+    # status to "dnd" — invisible only exists as a gateway-side presence value, not
+    # a stored setting. Skip the PATCH for it; the gateway PRESENCE_UPDATE below is
+    # what actually makes the account appear offline to others.
+    if status != "invisible":
+        out = await set_user_status(token, status, proxy_url=proxy_url)
+        if not out.get("ok"):
+            return False
+
+    # A status only shows to other users while a gateway session is broadcasting
+    # presence — open one (or reuse the existing one) and push the new status.
+    conn = await get_or_create(account_id)
+    if conn is not None:
+        activities = [acc["activity"]] if acc.get("activity") else []
+        await conn.update_presence(status=status, activities=activities)
+
+    await discords().update_one(
+        {"_id": ObjectId(account_id)},
+        {"$set": {"status": status}},
     )
     return True
 

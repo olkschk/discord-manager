@@ -1094,6 +1094,54 @@ async def delete_stage_instance(
         return {"ok": False, "error": str(exc)}
 
 
+def _build_status_proto(status: str) -> str:
+    """Build a base64 PreloadedUserSettings proto with only the status field set.
+
+    Field 11 (StatusSettings) -> message { field 1 (Status) -> message { field 1
+    (string) = status enum value } }. Discord's settings-proto PATCH does a
+    partial merge, so omitting the custom-status sub-field (5) leaves it untouched.
+    """
+    name = status.encode("utf-8")
+    str_field = bytes([0x0A, len(name)]) + name  # field 1, wiretype 2 (string)
+    wrapper = bytes([0x0A, len(str_field)]) + str_field  # field 1, wiretype 2 (message)
+    outer = bytes([0x5A, len(wrapper)]) + wrapper  # field 11, wiretype 2 (message)
+    return base64.b64encode(outer).decode("ascii")
+
+
+async def set_user_status(
+    token: str,
+    status: str,
+    *,
+    proxy_url: str | None = None,
+) -> dict[str, Any]:
+    """PATCH /users/@me/settings-proto/1 — set presence status (online/idle/dnd/invisible).
+
+    This is what the official Discord client does (gateway PRESENCE_UPDATE alone
+    does not persist/sync the status — the settings-proto endpoint is the source
+    of truth and also pushes the new presence over the user's gateway sessions).
+    """
+    settings = get_settings()
+    timeout = ClientTimeout(total=10)
+    payload = {"settings": _build_status_proto(status)}
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.patch(
+                f"{settings.discord_api_base}/users/@me/settings-proto/1",
+                headers=_headers(token),
+                json=payload,
+                proxy=proxy_url,
+                ssl=False,
+            ) as resp:
+                if resp.status == 200:
+                    return {"ok": True}
+                text = await resp.text()
+                logger.warning("set_user_status status=%s body=%.200s", resp.status, text)
+                return {"ok": False, "status": resp.status, "body": text}
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("set_user_status network error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
 async def set_voice_suppress(
     token: str,
     guild_id: str,

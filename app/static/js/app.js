@@ -345,6 +345,28 @@ document.querySelectorAll("table.accounts tbody tr[data-id]").forEach((row) => {
   });
 });
 
+// ── Status (presence) dropdown ───────────────────────────────────────────
+document.addEventListener("change", async (e) => {
+  const sel = e.target.closest(".row-status");
+  if (!sel) return;
+  const id = sel.dataset.id;
+  const status = sel.value;
+  sel.disabled = true;
+  try {
+    const resp = await fetch("/api/utils/status", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id: id, status }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!data.ok) {
+      alert("Failed to set status: " + (data.error || resp.status));
+    }
+  } finally {
+    sel.disabled = false;
+  }
+});
+
 // Event delegation for .row-verify (more reliable than direct querySelector)
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest(".row-verify");
