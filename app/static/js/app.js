@@ -142,7 +142,7 @@ function updateBulkState() {
   const n = ids.length;
   const selCount = document.getElementById("selCount");
   if (selCount) selCount.textContent = `${n} selected`;
-  ["bulkValidateBtn","bulkLoginBtn","bulkVerifyBtn","bulk2faSetupBtn","bulkGroupBtn","bulkDeleteBtn"].forEach(id => {
+  ["bulkValidateBtn","bulkLoginBtn","bulkVerifyBtn","bulk2faSetupBtn","bulkStatusBtn","bulkGroupBtn","bulkDeleteBtn"].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = n === 0;
   });
@@ -343,6 +343,35 @@ document.querySelectorAll("table.accounts tbody tr[data-id]").forEach((row) => {
       alert("Reset failed: " + (data.error || resp.status));
     }
   });
+});
+
+// ── Bulk status ──────────────────────────────────────────────────────────
+document.getElementById("bulkStatusBtn")?.addEventListener("click", async () => {
+  const ids = getSelectedIds();
+  if (!ids.length) return;
+  const status = document.getElementById("bulkStatusSel").value;
+  const btn = document.getElementById("bulkStatusBtn");
+  const out = document.getElementById("bulkResult");
+  btn.disabled = true;
+  out.textContent = `Setting ${status} for ${ids.length} account(s)…`;
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    const resp = await fetch("/api/utils/status", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id: id, status }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (data.ok) {
+      ok++;
+      const sel = document.querySelector(`.row-status[data-id="${id}"]`);
+      if (sel) sel.value = status;
+    } else {
+      fail++;
+    }
+  }
+  out.textContent = `Status set: ${ok} ok, ${fail} failed.`;
+  btn.disabled = false;
 });
 
 // ── Status (presence) dropdown ───────────────────────────────────────────

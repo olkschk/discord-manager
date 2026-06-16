@@ -112,6 +112,17 @@
 
           <span style="width:1px;height:20px;background:var(--border-visible);margin:0 var(--sp-xs);"></span>
 
+          <!-- Bulk status -->
+          <select id="bulkStatusSel" style="background:var(--black);color:var(--text-primary);border:1px solid var(--border-visible);border-radius:4px;padding:3px 6px;font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;">
+            <option value="online">🟢 Online</option>
+            <option value="idle">🌙 Idle</option>
+            <option value="dnd">⛔ Do Not Disturb</option>
+            <option value="invisible">⚫ Invisible</option>
+          </select>
+          <button type="button" class="small" id="bulkStatusBtn" disabled>Set status</button>
+
+          <span style="width:1px;height:20px;background:var(--border-visible);margin:0 var(--sp-xs);"></span>
+
           <!-- Bulk group -->
           <select id="bulkGroupSel" style="background:var(--black);color:var(--text-primary);border:1px solid var(--border-visible);border-radius:4px;padding:3px 6px;font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;">
             <option value="Masovka">Masovka</option>
