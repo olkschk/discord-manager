@@ -26,6 +26,7 @@ OP_HEARTBEAT = 1
 OP_IDENTIFY = 2
 OP_PRESENCE_UPDATE = 3
 OP_VOICE_STATE_UPDATE = 4
+OP_RECONNECT = 7
 OP_INVALID_SESSION = 9
 OP_HELLO = 10
 OP_HEARTBEAT_ACK = 11
@@ -155,8 +156,14 @@ class GatewayConnection:
                             logger.debug("gateway EVENT t=%s d=%.300s", t, data.get("d"))
                         else:
                             logger.debug("gateway EVENT t=%s d=%.200s", t, data.get("d"))
+                    elif op == OP_RECONNECT:
+                        logger.info("gateway OP_RECONNECT received — closing for reconnect")
+                        await self._teardown()
+                        break
                     elif op == OP_INVALID_SESSION:
                         logger.warning("gateway INVALID_SESSION resumable=%s", data.get("d"))
+                        await self._teardown()
+                        break
                     elif op not in (OP_HEARTBEAT_ACK, OP_HEARTBEAT):
                         logger.debug("gateway OP=%s d=%.200s", op, data.get("d"))
                 elif msg.type in (WSMsgType.CLOSED, WSMsgType.CLOSING, WSMsgType.ERROR):

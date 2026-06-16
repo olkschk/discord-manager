@@ -321,6 +321,7 @@ class ActivityBody(BaseModel):
     account_ids: list[str] = Field(..., min_length=1)
     mode: str = Field("random")
     game_name: str | None = None
+    start_offset_minutes: float | None = Field(None, ge=0, le=180)
 
 
 @router.get("/activity/templates")
@@ -331,16 +332,21 @@ async def get_activity_templates() -> dict:
 @router.post("/activity")
 async def set_activity(body: ActivityBody) -> dict:
     """Set a game activity (specific or random) on N accounts."""
+    start_ms = (
+        int(body.start_offset_minutes * 60_000)
+        if body.start_offset_minutes is not None
+        else None
+    )
     results: list[dict] = []
     for acc_id in body.account_ids:
         if body.mode == "game":
             game = next((g for g in GAMES if g["name"] == body.game_name), None)
-            act = await build_game_activity(game)
+            act = await build_game_activity(game, start_offset_ms=start_ms)
         else:
-            act = await build_random_activity()
+            act = await build_random_activity(start_offset_ms=start_ms)
         ok = await gateway_pool.set_activity(acc_id, activity=act)
         if ok and body.mode == "random":
-            gateway_pool.start_activity_rotation(acc_id)
+            gateway_pool.start_activity_rotation(acc_id, start_offset_ms=start_ms)
         else:
             gateway_pool.stop_activity_rotation(acc_id)
         results.append({"account_id": acc_id, "ok": ok, "activity_name": act.get("name")})

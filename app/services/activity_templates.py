@@ -210,25 +210,36 @@ async def build_spotify_activity(track: dict | None = None) -> dict:
     }
 
 
-async def build_game_activity(game: dict | None = None) -> dict:
-    """Build a game activity payload. application_id + the app's own icon hash
-    (fetched from Discord's public RPC endpoint) make Discord show the game icon."""
+_THREE_HOURS_MS = 3 * 3600 * 1000
+_MAX_OFFSET_MS  = 180 * 60_000
+
+
+async def build_game_activity(
+    game: dict | None = None,
+    *,
+    start_offset_ms: int | None = None,
+) -> dict:
+    """Build a game activity payload.
+
+    start_offset_ms — milliseconds ago the session "started".
+    None → random 0-180 min.  0 → timer starts at 00:00 right now.
+    Capped at 3 h so the displayed timer never exceeds that value.
+    """
     g = game or random.choice(GAMES)
+    if start_offset_ms is None:
+        offset = random.randint(0, _MAX_OFFSET_MS)
+    else:
+        offset = max(0, min(int(start_offset_ms), _THREE_HOURS_MS))
     activity: dict = {
         "type": 0,
         "name": g["name"],
         "application_id": g["app_id"],
         "details": random.choice(g["details"]),
         "state": random.choice(g["state"]),
-        "timestamps": {
-            "start": int(time.time() * 1000) - random.randint(0, 180 * 60_000)
-        },
+        "timestamps": {"start": int(time.time() * 1000) - offset},
     }
     icon_hash = await _fetch_app_icon_hash(g["app_id"])
     if icon_hash:
-        # "mp:app-icons/{app_id}/{hash}" is the media-proxy reference Discord clients
-        # resolve to cdn.discordapp.com/app-icons/... — a plain hash is not enough,
-        # it must use this prefix to be treated as a valid asset reference.
         activity["assets"] = {
             "large_image": f"mp:app-icons/{g['app_id']}/{icon_hash}.png",
             "large_text": g["large_text"],
@@ -236,9 +247,9 @@ async def build_game_activity(game: dict | None = None) -> dict:
     return activity
 
 
-async def build_random_activity() -> dict:
+async def build_random_activity(*, start_offset_ms: int | None = None) -> dict:
     """Pick a random game activity."""
-    return await build_game_activity()
+    return await build_game_activity(start_offset_ms=start_offset_ms)
 
 
 # Human-readable labels for the UI

@@ -76,10 +76,20 @@
           Sets a custom presence via persistent gateway WebSocket. Activity disappears when the
           process restarts (re-apply after restart).
         </p>
-        <!-- Mode selector -->
-        <div style="display:flex; gap:var(--sp-sm); margin-bottom:var(--sp-sm);">
+        <!-- Mode selector + custom start time inline -->
+        <div style="display:flex; align-items:center; gap:var(--sp-sm); margin-bottom:var(--sp-sm);">
           <button type="button" class="activity-mode-btn primary" data-mode="random">🎲 Random</button>
           <button type="button" class="activity-mode-btn" data-mode="game">🎮 Game</button>
+          <span style="width:1px;height:20px;background:var(--border-visible);"></span>
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; color:var(--text-secondary); white-space:nowrap;">
+            <input type="checkbox" id="activityCustomStart" />
+            Custom start time
+          </label>
+          <div id="activityCustomStartField" style="display:none; align-items:center; gap:6px;">
+            <input type="number" id="activityStartMinutes" min="0" max="180" step="1" value="0"
+              style="width:56px; background:var(--black); color:var(--text-primary); border:1px solid var(--border-visible); border-radius:4px; padding:3px 6px; font-family:var(--font-mono); font-size:11px;" />
+            <span style="font-size:11px; color:var(--text-secondary); white-space:nowrap;">min ago</span>
+          </div>
         </div>
         <!-- Game selector (hidden unless game mode) -->
         <div id="activityGamePicker" style="display:none; margin-bottom:var(--sp-sm);">
@@ -706,6 +716,11 @@ document.querySelectorAll(".activity-mode-btn").forEach(btn => {
   });
 });
 
+document.getElementById("activityCustomStart")?.addEventListener("change", (e) => {
+  const field = document.getElementById("activityCustomStartField");
+  field.style.display = e.target.checked ? "flex" : "none";
+});
+
 document.getElementById("activitySelectAll")?.addEventListener("click", () => {
   document.querySelectorAll('.acc-check[data-section="activity"]:not(:disabled)').forEach(c => c.checked = true);
 });
@@ -716,10 +731,15 @@ document.getElementById("activityApplyBtn")?.addEventListener("click", async () 
   const game_name = document.getElementById("activityGameName")?.value || null;
   if (!ids.length) return setResult(out, false, "Select at least one account");
   setResult(out, true, `Applying ${mode} activity for ${ids.length}…`);
+  const customStart = document.getElementById("activityCustomStart")?.checked;
+  const startMin = customStart ? parseFloat(document.getElementById("activityStartMinutes")?.value) : null;
   const r = await fetch("/api/utils/activity", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ account_ids: ids, mode, game_name }),
+    body: JSON.stringify({
+      account_ids: ids, mode, game_name,
+      start_offset_minutes: (customStart && !isNaN(startMin)) ? startMin : null,
+    }),
   });
   const data = await r.json();
   if (!r.ok) return setResult(out, false, `Error ${r.status}`);

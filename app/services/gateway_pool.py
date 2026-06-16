@@ -27,7 +27,10 @@ logger = logging.getLogger(__name__)
 
 _connections: dict[str, GatewayConnection] = {}
 _rotation_tasks: dict[str, asyncio.Task] = {}
+_supervisor_tasks: dict[str, asyncio.Task] = {}
 _lock = asyncio.Lock()
+
+_SUPERVISOR_INTERVAL = 30  # seconds between liveness checks
 
 # How often a random activity is swapped for another one.
 _ROTATION_MIN_SECONDS = 10 * 60
@@ -76,11 +79,61 @@ async def get_or_create(account_id: str) -> GatewayConnection | None:
         if conn is None:
             return None
         _connections[account_id] = conn
-        return conn
+    _start_supervisor(account_id)
+    return conn
+
+
+def _stop_supervisor(account_id: str) -> None:
+    task = _supervisor_tasks.pop(account_id, None)
+    if task is not None and not task.done():
+        task.cancel()
+
+
+async def _supervisor_loop(account_id: str) -> None:
+    """Watch the gateway connection and reconnect if it drops, restoring presence from DB."""
+    try:
+        while True:
+            await asyncio.sleep(_SUPERVISOR_INTERVAL)
+            conn = _connections.get(account_id)
+            alive = conn is not None and conn.ws is not None and not conn.ws.closed
+            if alive:
+                continue
+
+            logger.info("supervisor: gateway dead for %s — reconnecting", account_id)
+            new_conn = await _open_connection(account_id)
+            if new_conn is None:
+                logger.warning("supervisor: reconnect failed for %s — will retry", account_id)
+                continue
+
+            async with _lock:
+                _connections[account_id] = new_conn
+
+            # Restore last known presence from DB
+            acc = await discords().find_one({"_id": ObjectId(account_id)})
+            if acc:
+                activities = [acc["activity"]] if acc.get("activity") else []
+                status = acc.get("status", "online")
+                await new_conn.update_presence(status=status, activities=activities)
+                logger.info("supervisor: presence restored for %s status=%s", account_id, status)
+
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.exception("supervisor crashed for %s", account_id)
+
+
+def _start_supervisor(account_id: str) -> None:
+    existing = _supervisor_tasks.get(account_id)
+    if existing is not None and not existing.done():
+        return  # already running
+    _supervisor_tasks[account_id] = asyncio.create_task(
+        _supervisor_loop(account_id), name=f"gw-supervisor-{account_id}"
+    )
 
 
 async def close_one(account_id: str) -> None:
     stop_activity_rotation(account_id)
+    _stop_supervisor(account_id)
     async with _lock:
         conn = _connections.pop(account_id, None)
     if conn is not None:
@@ -90,6 +143,8 @@ async def close_one(account_id: str) -> None:
 async def close_all() -> None:
     for account_id in list(_rotation_tasks):
         stop_activity_rotation(account_id)
+    for account_id in list(_supervisor_tasks):
+        _stop_supervisor(account_id)
     async with _lock:
         items = list(_connections.items())
         _connections.clear()
@@ -100,13 +155,35 @@ async def close_all() -> None:
             logger.exception("error closing gateway connection")
 
 
+_THREE_HOURS_MS = 3 * 3600 * 1000
+
+
 # ── Activity rotation (random activity swapped every 10-60 minutes) ────────
-async def _rotation_loop(account_id: str) -> None:
+async def _rotation_loop(account_id: str, start_offset_ms: int | None) -> None:
+    """Rotate activity every 10-60 min.
+
+    If the activity's displayed timer would hit 3 h, force-reset to 0
+    (re-apply with start = now) regardless of the rotation schedule.
+    """
     try:
         while True:
             delay = random.randint(_ROTATION_MIN_SECONDS, _ROTATION_MAX_SECONDS)
             await asyncio.sleep(delay)
-            act = await build_random_activity()
+
+            # Check whether the timer is approaching 3 h and reset if so.
+            acc = await discords().find_one({"_id": ObjectId(account_id)})
+            ts_start = (
+                ((acc or {}).get("activity") or {})
+                .get("timestamps", {})
+                .get("start", 0)
+            )
+            elapsed_ms = int(__import__("time").time() * 1000) - (ts_start or 0)
+            if ts_start and elapsed_ms >= _THREE_HOURS_MS:
+                # Timer hit 3 h — restart from 0
+                act = await build_random_activity(start_offset_ms=0)
+            else:
+                act = await build_random_activity(start_offset_ms=start_offset_ms)
+
             await set_activity(account_id, activity=act)
     except asyncio.CancelledError:
         raise
@@ -114,13 +191,17 @@ async def _rotation_loop(account_id: str) -> None:
         logger.exception("activity rotation crashed for %s", account_id)
 
 
-def start_activity_rotation(account_id: str) -> None:
+def start_activity_rotation(
+    account_id: str,
+    start_offset_ms: int | None = None,
+) -> None:
     """(Re)start the background task that periodically swaps the account's activity."""
     existing = _rotation_tasks.get(account_id)
     if existing is not None and not existing.done():
         existing.cancel()
     _rotation_tasks[account_id] = asyncio.create_task(
-        _rotation_loop(account_id), name=f"activity-rotation-{account_id}"
+        _rotation_loop(account_id, start_offset_ms),
+        name=f"activity-rotation-{account_id}",
     )
 
 
