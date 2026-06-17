@@ -41,7 +41,7 @@
           <label class="rowlist__row">
             <input type="checkbox" class="acc-check" data-section="stage" value="{{ a.id }}" />
             <span class="rowlist__primary">{{ a.email }}</span>
-            <span class="rowlist__meta">{{ a.username }}</span>
+            <span class="rowlist__meta">{{ a.name or a.username }}</span>
             <span class="status {% if a.joined_voice %}ok{% else %}muted{% endif %}">
               {{ "in stage" if a.joined_voice else "—" }}
             </span>
@@ -79,7 +79,7 @@
             <select id="startStageAccount">
               <option value="">Select account…</option>
               {% for a in accounts if a.joined_voice %}
-              <option value="{{ a.id }}">{{ a.username }} ({{ a.email }})</option>
+              <option value="{{ a.id }}">{{ a.name or a.username }} ({{ a.email }})</option>
               {% else %}
               <option value="" disabled>— no accounts in stage —</option>
               {% endfor %}
@@ -106,7 +106,7 @@
             <select id="speakAccountSelect">
               <option value="">Select account…</option>
               {% for a in accounts if a.joined_voice %}
-              <option value="{{ a.id }}">{{ a.username }} ({{ a.email }})</option>
+              <option value="{{ a.id }}">{{ a.name or a.username }} ({{ a.email }})</option>
               {% else %}
               <option value="" disabled>— no accounts in stage —</option>
               {% endfor %}
@@ -155,7 +155,7 @@
             {% for a in accounts %}
             <div class="rowlist__row stage-play-row" data-id="{{ a.id }}" style="gap:var(--sp-sm);">
               <input type="checkbox" class="stage-play-check" value="{{ a.id }}" />
-              <span class="rowlist__primary" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ a.email }}">{{ a.username }}</span>
+              <span class="rowlist__primary" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ a.email }}">{{ a.name or a.username }}</span>
               <select class="stage-play-track" style="width:140px; font-size:11px;">
                 <option value="">— track —</option>
               </select>

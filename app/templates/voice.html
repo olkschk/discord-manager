@@ -128,7 +128,7 @@
             {% for a in accounts %}
             <div class="rowlist__row play-row" data-id="{{ a.id }}" style="gap:var(--sp-sm);">
               <input type="checkbox" class="play-check" value="{{ a.id }}" />
-              <span class="rowlist__primary" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ a.email }}">{{ a.username }}</span>
+              <span class="rowlist__primary" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ a.email }}">{{ a.name or a.username }}</span>
               <select class="play-track" style="width:120px; font-size:11px;">
                 <option value="">— track —</option>
               </select>
@@ -196,7 +196,7 @@
         <div class="picker-row rowlist__row" data-group="{{ a.group }}" style="display:flex; align-items:center; gap:var(--sp-sm); padding:8px 12px;">
           <input type="checkbox" class="picker-check" value="{{ a.id }}" style="flex-shrink:0;" />
           <span class="rowlist__primary" style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ a.email }}">{{ a.email }}</span>
-          <span class="rowlist__meta" style="flex-shrink:0;">{{ a.username }}</span>
+          <span class="rowlist__meta" style="flex-shrink:0;">{{ a.name or a.username }}</span>
           <span class="status {% if a.joined_voice %}ok{% else %}muted{% endif %}" style="flex-shrink:0;">
             {{ "IN VOICE" if a.joined_voice else "—" }}
           </span>
