@@ -1,11 +1,15 @@
 """Cross-cutting helpers used by routers that need to act *as* a Discord account."""
 from __future__ import annotations
 
+import logging
+
 from bson import ObjectId
 
 from app.database import discords, proxies as proxies_coll
 from app.security import decrypt
 from app.services.discord_api import build_proxy_url
+
+logger = logging.getLogger(__name__)
 
 
 async def load_account_token_and_proxy(
@@ -50,6 +54,7 @@ async def load_account_token_and_proxy(
                     proxy["ip"], proxy["port"], proxy["login"], decrypt(proxy["password"])
                 )
             except ValueError:
+                logger.warning("load_account: proxy %s password unreadable for account %s", acc.get("proxy_id"), account_id)
                 proxy_url = None
 
     return acc, token, proxy_url

@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import time
 
 from bson import ObjectId
 
@@ -94,9 +95,10 @@ async def _supervisor_loop(account_id: str) -> None:
     try:
         while True:
             await asyncio.sleep(_SUPERVISOR_INTERVAL)
+
+            # Check liveness without holding the lock (cheap read).
             conn = _connections.get(account_id)
-            alive = conn is not None and conn.ws is not None and not conn.ws.closed
-            if alive:
+            if conn is not None and conn.ws is not None and not conn.ws.closed:
                 continue
 
             logger.info("supervisor: gateway dead for %s — reconnecting", account_id)
@@ -105,13 +107,22 @@ async def _supervisor_loop(account_id: str) -> None:
                 logger.warning("supervisor: reconnect failed for %s — will retry", account_id)
                 continue
 
+            # Double-check under the lock: if another coroutine already restored
+            # the connection (e.g. get_or_create was called concurrently), close
+            # our redundant connection rather than overwriting theirs.
             async with _lock:
+                current = _connections.get(account_id)
+                if current is not None and current.ws is not None and not current.ws.closed:
+                    logger.info("supervisor: connection already restored for %s — discarding duplicate", account_id)
+                    await new_conn.close()
+                    continue
                 _connections[account_id] = new_conn
 
-            # Restore last known presence from DB
+            # Restore last known presence from DB.
             acc = await discords().find_one({"_id": ObjectId(account_id)})
             if acc:
-                activities = [acc["activity"]] if acc.get("activity") else []
+                activity = acc.get("activity")
+                activities = [activity] if isinstance(activity, dict) else []
                 status = acc.get("status", "online")
                 await new_conn.update_presence(status=status, activities=activities)
                 logger.info("supervisor: presence restored for %s status=%s", account_id, status)
@@ -172,12 +183,13 @@ async def _rotation_loop(account_id: str, start_offset_ms: int | None) -> None:
 
             # Check whether the timer is approaching 3 h and reset if so.
             acc = await discords().find_one({"_id": ObjectId(account_id)})
+            activity = (acc or {}).get("activity")
             ts_start = (
-                ((acc or {}).get("activity") or {})
-                .get("timestamps", {})
-                .get("start", 0)
+                activity.get("timestamps", {}).get("start", 0)
+                if isinstance(activity, dict)
+                else 0
             )
-            elapsed_ms = int(__import__("time").time() * 1000) - (ts_start or 0)
+            elapsed_ms = int(time.time() * 1000) - (ts_start or 0)
             if ts_start and elapsed_ms >= _THREE_HOURS_MS:
                 # Timer hit 3 h — restart from 0
                 act = await build_random_activity(start_offset_ms=0)

@@ -9,6 +9,7 @@ import asyncio
 import base64
 import json as _json
 import logging
+import os
 from typing import Any
 from urllib.parse import urlparse
 
@@ -66,11 +67,10 @@ def _x_super_properties(ua: str) -> str:
     ).decode()
 
 
-# Per-process installation ID (stable within one session)
-import os as _os, base64 as _b64, time as _time
+# Per-process installation ID (stable within one session, generated once at startup)
 _INSTALLATION_ID = (
     "1497753024896958545."
-    + _b64.urlsafe_b64encode(_os.urandom(16)).decode().rstrip("=")
+    + base64.urlsafe_b64encode(os.urandom(16)).decode().rstrip("=")
 )
 
 # Discord epoch for nonce generation
