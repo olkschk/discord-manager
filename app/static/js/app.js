@@ -462,18 +462,18 @@ document.addEventListener("click", async (e) => {
   applyFilters(); // init count
 })();
 
-// ── Clipboard helper (works on HTTP too) ──────────────────────────────────────
+// ── Clipboard helper (works on HTTP / VPS too) ───────────────────────────────
 function copyText(text) {
   if (navigator.clipboard && window.isSecureContext) {
     return navigator.clipboard.writeText(text);
   }
   const ta = document.createElement("textarea");
   ta.value = text;
-  ta.style.position = "fixed";
-  ta.style.opacity = "0";
+  ta.style.cssText = "position:fixed;left:-9999px;top:0;opacity:.01;";
   document.body.appendChild(ta);
+  ta.focus();
   ta.select();
-  document.execCommand("copy");
+  try { document.execCommand("copy"); } catch {}
   document.body.removeChild(ta);
   return Promise.resolve();
 }
@@ -484,11 +484,13 @@ document.addEventListener("click", e => {
   if (!cell || e.target.closest("button") || e.target.closest("select")) return;
   const text = cell.dataset.copy;
   if (!text) return;
-  copyText(text).then(() => {
-    const orig = cell.style.outline;
-    cell.style.outline = "1px solid var(--text-display)";
-    setTimeout(() => { cell.style.outline = orig; }, 400);
-  });
+  copyText(text);
+  const tip = document.createElement("span");
+  tip.textContent = "Copied!";
+  tip.style.cssText = "position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:9px;color:var(--text-display);pointer-events:none;";
+  cell.style.position = "relative";
+  cell.appendChild(tip);
+  setTimeout(() => tip.remove(), 800);
 });
 
 // ── Token modal ───────────────────────────────────────────────────────────────
