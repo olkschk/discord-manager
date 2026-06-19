@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import random
 
 import pyotp
 from bson import ObjectId
@@ -321,7 +322,19 @@ class ActivityBody(BaseModel):
     account_ids: list[str] = Field(..., min_length=1)
     mode: str = Field("random")
     game_name: str | None = None
-    start_offset_minutes: float | None = Field(None, ge=0, le=180)
+    start_offset_min: float | None = Field(None, ge=0, le=180)
+    start_offset_max: float | None = Field(None, ge=0, le=180)
+
+
+def _random_offset_ms(body: ActivityBody) -> int | None:
+    """Pick a random offset in ms from the user-supplied minute range, or None for default."""
+    if body.start_offset_min is None and body.start_offset_max is None:
+        return None
+    lo = int((body.start_offset_min or 0) * 60_000)
+    hi = int((body.start_offset_max or body.start_offset_min or 0) * 60_000)
+    if lo > hi:
+        lo, hi = hi, lo
+    return random.randint(lo, hi)
 
 
 @router.get("/activity/templates")
@@ -332,13 +345,9 @@ async def get_activity_templates() -> dict:
 @router.post("/activity")
 async def set_activity(body: ActivityBody) -> dict:
     """Set a game activity (specific or random) on N accounts."""
-    start_ms = (
-        int(body.start_offset_minutes * 60_000)
-        if body.start_offset_minutes is not None
-        else None
-    )
     results: list[dict] = []
     for acc_id in body.account_ids:
+        start_ms = _random_offset_ms(body)
         if body.mode == "game":
             game = next((g for g in GAMES if g["name"] == body.game_name), None)
             act = await build_game_activity(game, start_offset_ms=start_ms)

@@ -155,8 +155,8 @@ GAMES = [
         "name": "Azora",
         "app_id": "1517238868942913599",
         "large_text": "Azora",
-        "details": ["Exploring the world", "In a dungeon", "Trading"],
-        "state": ["Solo", "Party", "Idle"],
+        "details": [],
+        "state": [],
     },
     {
         "name": "League of Legends",
@@ -290,10 +290,12 @@ async def build_game_activity(
         "type": 0,
         "name": g["name"],
         "application_id": g["app_id"],
-        "details": random.choice(g["details"]),
-        "state": random.choice(g["state"]),
         "timestamps": {"start": int(time.time() * 1000) - offset},
     }
+    if g["details"]:
+        activity["details"] = random.choice(g["details"])
+    if g["state"]:
+        activity["state"] = random.choice(g["state"])
     icon_hash = await _fetch_app_icon_hash(g["app_id"])
     if icon_hash:
         activity["assets"] = {

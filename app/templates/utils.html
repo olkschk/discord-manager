@@ -86,8 +86,11 @@
             Custom start time
           </label>
           <div id="activityCustomStartField" style="display:none; align-items:center; gap:6px;">
-            <input type="number" id="activityStartMinutes" min="0" max="180" step="1" value="0"
-              style="width:56px; background:var(--black); color:var(--text-primary); border:1px solid var(--border-visible); border-radius:4px; padding:3px 6px; font-family:var(--font-mono); font-size:11px;" />
+            <input type="number" id="activityStartMin" min="0" max="180" step="1" value="0"
+              style="width:50px; background:var(--black); color:var(--text-primary); border:1px solid var(--border-visible); border-radius:4px; padding:3px 6px; font-family:var(--font-mono); font-size:11px;" />
+            <span style="font-size:11px; color:var(--text-secondary);">—</span>
+            <input type="number" id="activityStartMax" min="0" max="180" step="1" value="30"
+              style="width:50px; background:var(--black); color:var(--text-primary); border:1px solid var(--border-visible); border-radius:4px; padding:3px 6px; font-family:var(--font-mono); font-size:11px;" />
             <span style="font-size:11px; color:var(--text-secondary); white-space:nowrap;">min ago</span>
           </div>
         </div>
@@ -135,7 +138,14 @@
                data-username="{{ a.username }}" data-name="{{ a.name }}"
                data-bio="{{ a.bio or '' }}" data-email="{{ a.email }}">
             <input type="checkbox" class="acc-check" data-section="identity" value="{{ a.id }}" {% if not a.token_valid %}disabled{% endif %} />
-            <span class="rowlist__primary">{{ a.email }}</span>
+            <span class="rowlist__primary" style="display:inline-flex;align-items:center;gap:5px;">
+              {% if a.avatar_url %}
+              <img src="{{ a.avatar_url }}" alt="" style="width:18px;height:18px;border-radius:50%;object-fit:cover;" />
+              {% else %}
+              <span style="display:inline-flex;width:18px;height:18px;border-radius:50%;background:var(--surface-raised);align-items:center;justify-content:center;font-size:8px;color:var(--text-disabled);">?</span>
+              {% endif %}
+              {{ a.email }}
+            </span>
             <span class="rowlist__meta">{{ a.username }} · {{ a.name }}</span>
             <span class="rowlist__bio">{{ a.bio or "—" }}</span>
             <span class="status {% if a.token_valid %}ok{% else %}muted{% endif %}">{{ "valid" if a.token_valid else "invalid" }}</span>
@@ -757,13 +767,15 @@ document.getElementById("activityApplyBtn")?.addEventListener("click", async () 
   if (!ids.length) return setResult(out, false, "Select at least one account");
   setResult(out, true, `Applying ${mode} activity for ${ids.length}…`);
   const customStart = document.getElementById("activityCustomStart")?.checked;
-  const startMin = customStart ? parseFloat(document.getElementById("activityStartMinutes")?.value) : null;
+  const sMin = customStart ? parseFloat(document.getElementById("activityStartMin")?.value) : null;
+  const sMax = customStart ? parseFloat(document.getElementById("activityStartMax")?.value) : null;
   const r = await fetch("/api/utils/activity", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({
       account_ids: ids, mode, game_name,
-      start_offset_minutes: (customStart && !isNaN(startMin)) ? startMin : null,
+      start_offset_min: (customStart && !isNaN(sMin)) ? sMin : null,
+      start_offset_max: (customStart && !isNaN(sMax)) ? sMax : null,
     }),
   });
   const data = await r.json();
