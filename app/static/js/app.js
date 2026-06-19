@@ -489,14 +489,16 @@ function copyText(text) {
 document.addEventListener("click", e => {
   const cell = e.target.closest(".copyable");
   if (!cell || e.target.closest("button") || e.target.closest("select")) return;
-  if (cell._copying) return;
   const text = cell.dataset.copy;
   if (!text) return;
   copyText(text);
-  cell._copying = true;
-  const saved = cell.innerHTML;
-  cell.innerHTML = '<span style="font-size:10px;color:var(--text-display);">Copied!</span>';
-  setTimeout(() => { cell.innerHTML = saved; cell._copying = false; }, 600);
+  if (cell.querySelector(".copy-tip")) return;
+  const tip = document.createElement("span");
+  tip.className = "copy-tip";
+  tip.textContent = " Copied!";
+  tip.style.cssText = "font-size:9px;color:var(--text-display);margin-left:4px;";
+  cell.appendChild(tip);
+  setTimeout(() => tip.remove(), 700);
 });
 
 // ── Token modal ───────────────────────────────────────────────────────────────
