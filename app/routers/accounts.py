@@ -23,6 +23,12 @@ from app.services.auth_recovery import (
 from app.services.discord_api import build_proxy_url, login_with_password, validate_token
 from app.services.imap_client import fetch_latest_html, imap_host_for
 
+VALID_GROUPS = {
+    "Massovka1", "Massovka2", "Massovka3",
+    "Chatter1", "Chatter2", "Chatter3",
+    "Infl1", "Infl2", "Infl3",
+}
+
 router = APIRouter(
     prefix="/api/accounts",
     dependencies=[Depends(require_login)],
@@ -195,6 +201,8 @@ async def validate_one(
     update: dict = {"token_valid": is_valid}
     if is_valid and data:
         update["username"] = data.get("username")
+        update["discord_user_id"] = data.get("id")
+        update["avatar"] = data.get("avatar")
         if not acc.get("name"):
             update["name"] = data.get("global_name") or data.get("username")
     await discords().update_one({"_id": acc["_id"]}, {"$set": update})
@@ -207,8 +215,8 @@ async def set_group(
     body: dict,
     user: str = Depends(require_login),
 ) -> dict:
-    group = body.get("group", "Masovka")
-    if group not in ("Influencer", "Chatter", "Masovka"):
+    group = body.get("group", "Massovka1")
+    if group not in VALID_GROUPS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid group")
     if not ObjectId.is_valid(account_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
@@ -226,8 +234,8 @@ async def bulk_set_group(
 ) -> dict:
     """Set the same group for multiple accounts at once."""
     account_ids: list[str] = body.get("account_ids", [])
-    group: str = body.get("group", "Masovka")
-    if group not in ("Influencer", "Chatter", "Masovka"):
+    group: str = body.get("group", "Massovka1")
+    if group not in VALID_GROUPS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid group")
     valid_ids = [ObjectId(aid) for aid in account_ids if ObjectId.is_valid(aid)]
     if not valid_ids:

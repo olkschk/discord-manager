@@ -84,7 +84,7 @@
                       background:var(--black); border:1px solid var(--border-visible);
                       border-radius:4px; padding:6px 10px; color:var(--text-primary);" />
         <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;color:var(--text-secondary);">Group:</span>
-        {% for grp in ["All", "Masovka", "Chatter", "Influencer"] %}
+        {% for grp in ["All", "Massovka1", "Massovka2", "Massovka3", "Chatter1", "Chatter2", "Chatter3", "Infl1", "Infl2", "Infl3"] %}
         <button type="button" class="inv-group-btn{% if grp == 'All' %} selected{% endif %}" data-group="{{ grp }}"
           style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
                  padding:4px 10px;border-radius:4px;border:1px solid var(--border-visible);cursor:pointer;
@@ -125,9 +125,15 @@
 
           <!-- Bulk group -->
           <select id="bulkGroupSel" style="background:var(--black);color:var(--text-primary);border:1px solid var(--border-visible);border-radius:4px;padding:3px 6px;font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;">
-            <option value="Masovka">Masovka</option>
-            <option value="Chatter">Chatter</option>
-            <option value="Influencer">Influencer</option>
+            <option value="Massovka1">Massovka1</option>
+            <option value="Massovka2">Massovka2</option>
+            <option value="Massovka3">Massovka3</option>
+            <option value="Chatter1">Chatter1</option>
+            <option value="Chatter2">Chatter2</option>
+            <option value="Chatter3">Chatter3</option>
+            <option value="Infl1">Infl1</option>
+            <option value="Infl2">Infl2</option>
+            <option value="Infl3">Infl3</option>
           </select>
           <button type="button" class="small" id="bulkGroupBtn" disabled>Set group</button>
 
@@ -164,13 +170,18 @@
                 data-username="{{ a.username | lower }}"
                 data-name="{{ a.name | lower }}">
               <td><input type="checkbox" class="row-check" value="{{ a.id }}"></td>
-              <td class="email">
+              <td class="email copyable" data-copy="{{ a.email }}" title="Click to copy" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                {% if a.avatar_url %}
+                <img src="{{ a.avatar_url }}" alt="" style="width:20px;height:20px;border-radius:50%;object-fit:cover;flex-shrink:0;" />
+                {% else %}
+                <span style="width:20px;height:20px;border-radius:50%;background:var(--surface-raised);display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:var(--text-disabled);flex-shrink:0;">?</span>
+                {% endif %}
                 {% if a.is_donor %}<span class="donor-badge" title="Donor — drives topic monitor">DONOR</span>{% endif %}
                 {{ a.email }}
               </td>
               <td>{{ a.username }}</td>
               <td>{{ a.name }}</td>
-              <td class="pw-cell">
+              <td class="pw-cell copyable" data-copy="{{ a.password }}" title="Click to copy" style="cursor:pointer;">
                 <span class="pw-dots">••••••••</span>
                 <span class="pw-text" style="display:none; font-family:var(--font-mono); font-size:11px;">{{ a.password }}</span>
                 <button type="button" class="small pw-toggle" style="margin-left:4px; padding:1px 5px; font-size:10px;">show</button>

@@ -168,7 +168,7 @@
     <div style="display:flex; flex-direction:column; gap:var(--sp-sm); padding:var(--sp-md) var(--sp-lg); border-bottom:1px solid var(--border); flex-shrink:0;">
       <!-- Group filter -->
       <div style="display:flex; gap:var(--sp-xs);">
-        {% for grp in ["All", "Masovka", "Chatter", "Influencer"] %}
+        {% for grp in ["All", "Massovka1", "Massovka2", "Massovka3", "Chatter1", "Chatter2", "Chatter3", "Infl1", "Infl2", "Infl3"] %}
         <button type="button" class="picker-group-btn{% if grp == 'All' %} selected{% endif %}" data-group="{{ grp }}"
           style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px;border-radius:4px;border:1px solid var(--border-visible);background:{% if grp == 'All' %}var(--text-display){% else %}transparent{% endif %};color:{% if grp == 'All' %}var(--black){% else %}var(--text-secondary){% endif %};cursor:pointer;">
           {{ grp }}

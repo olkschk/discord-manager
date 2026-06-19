@@ -462,6 +462,35 @@ document.addEventListener("click", async (e) => {
   applyFilters(); // init count
 })();
 
+// ── Clipboard helper (works on HTTP too) ──────────────────────────────────────
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  document.body.removeChild(ta);
+  return Promise.resolve();
+}
+
+// ── Click-to-copy on .copyable cells ──────────────────────────────────────────
+document.addEventListener("click", e => {
+  const cell = e.target.closest(".copyable");
+  if (!cell || e.target.closest("button") || e.target.closest("select")) return;
+  const text = cell.dataset.copy;
+  if (!text) return;
+  copyText(text).then(() => {
+    const orig = cell.style.outline;
+    cell.style.outline = "1px solid var(--text-display)";
+    setTimeout(() => { cell.style.outline = orig; }, 400);
+  });
+});
+
 // ── Token modal ───────────────────────────────────────────────────────────────
 (function () {
   const modal = document.getElementById("tokenModal");
@@ -482,7 +511,7 @@ document.addEventListener("click", async (e) => {
   modal.addEventListener("click", e => { if (e.target === modal) modal.hidden = true; });
 
   copyBtn.addEventListener("click", () => {
-    navigator.clipboard.writeText(valueEl.value).then(() => {
+    copyText(valueEl.value).then(() => {
       copyBtn.textContent = "Copied ✓";
       setTimeout(() => { copyBtn.textContent = "Copy"; }, 1500);
     });

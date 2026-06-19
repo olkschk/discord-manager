@@ -268,6 +268,9 @@
           <p class="muted">No accounts yet.</p>
           {% endfor %}
         </div>
+        <div style="display:flex; justify-content:flex-end; gap:var(--sp-sm); margin-top:var(--sp-sm);">
+          <button type="button" id="joinMarkSelectedBtn" class="small">Join selected manually</button>
+        </div>
         <output id="joinResult" class="result"></output>
       </div>
     </section>
@@ -649,6 +652,28 @@ document.querySelectorAll(".mark-joined-btn").forEach(btn => {
     if (data.ok) location.reload();
     else { btn.disabled = false; btn.textContent = "Join manually"; alert("Error: " + (data.detail || r.status)); }
   });
+});
+
+document.getElementById("joinMarkSelectedBtn")?.addEventListener("click", async () => {
+  const ids = gather("join");
+  const out = document.getElementById("joinResult");
+  if (!ids.length) return setResult(out, false, "Select at least one account");
+  const btn = document.getElementById("joinMarkSelectedBtn");
+  btn.disabled = true;
+  setResult(out, true, `Marking ${ids.length} account(s) as joined…`);
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    const r = await fetch("/api/utils/mark-joined", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id: id }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (data.ok) ok++; else fail++;
+  }
+  setResult(out, ok > 0, `${ok} marked as joined, ${fail} failed.`);
+  btn.disabled = false;
+  if (ok > 0) setTimeout(() => location.reload(), 800);
 });
 
 // 2FA

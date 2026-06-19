@@ -22,6 +22,29 @@ def _safe_decrypt(value: str | None) -> str:
         return ""
 
 
+def _avatar_url(acc: dict) -> str:
+    """Build a Discord CDN avatar URL from a DB document.
+
+    Priority:
+    1. Custom avatar hash → cdn.discordapp.com/avatars/{uid}/{hash}.png/gif
+    2. No custom avatar but uid known → default colored avatar (index from uid)
+    3. Neither → empty string (template shows '?' placeholder)
+    """
+    uid = acc.get("discord_user_id", "")
+    avatar = acc.get("avatar")
+    if avatar and uid:
+        ext = "gif" if avatar.startswith("a_") else "png"
+        return f"https://cdn.discordapp.com/avatars/{uid}/{avatar}.{ext}?size=64"
+    if uid:
+        # Default Discord avatar: index = (user_id >> 22) % 6
+        try:
+            idx = (int(uid) >> 22) % 6
+        except (ValueError, TypeError):
+            idx = 0
+        return f"https://cdn.discordapp.com/embed/avatars/{idx}.png"
+    return ""
+
+
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
@@ -42,10 +65,11 @@ async def dashboard(
                 "joined_stream": acc.get("joined_stream", False),
                 "has_2fa": acc.get("two_fa_secret") is not None,
                 "is_donor": acc.get("is_donor", False),
-                "group": acc.get("group", "Masovka"),
+                "group": acc.get("group", "Massovka1"),
                 "password": _safe_decrypt(acc.get("password")),
                 "discord_token": _safe_decrypt(acc.get("discord_token")),
                 "status": acc.get("status", "online"),
+                "avatar_url": _avatar_url(acc),
             }
         )
 
@@ -83,6 +107,7 @@ async def stage_page(
                 "id": str(acc["_id"]),
                 "email": acc["email"],
                 "username": acc.get("username") or acc["email"],
+                "name": acc.get("name") or acc.get("username") or acc["email"],
                 "joined_voice": acc.get("joined_voice", False),
                 "voice_channel_id": acc.get("voice_channel_id"),
             }
@@ -106,7 +131,8 @@ async def voice_page(
                 "id": str(acc["_id"]),
                 "email": acc["email"],
                 "username": acc.get("username") or acc["email"],
-                "group": acc.get("group", "Masovka"),
+                "name": acc.get("name") or acc.get("username") or acc["email"],
+                "group": acc.get("group", "Massovka1"),
                 "joined_voice": acc.get("joined_voice", False),
                 "voice_channel_id": acc.get("voice_channel_id"),
                 "voice_guild_id": acc.get("voice_guild_id"),
@@ -128,19 +154,14 @@ async def chat_page(
     # Accounts for topic chat: joined_server + token_valid
     accounts: list[dict] = []
     async for acc in discords().find({"owner": user, "token_valid": True, "joined_server": True}).sort("_id", -1):
-        uid = acc.get("discord_user_id", "")
-        avatar = acc.get("avatar")
-        avatar_url = (
-            f"https://cdn.discordapp.com/avatars/{uid}/{avatar}.png?size=64"
-            if avatar and uid else ""
-        )
         accounts.append(
             {
                 "id": str(acc["_id"]),
                 "email": acc["email"],
                 "username": acc.get("username") or acc["email"],
-                "group": acc.get("group", "Masovka"),
-                "avatar_url": avatar_url,
+                "name": acc.get("name") or acc.get("username") or acc["email"],
+                "group": acc.get("group", "Massovka1"),
+                "avatar_url": _avatar_url(acc),
             }
         )
     # All token-valid accounts for DM reply map (DMs can arrive on any account)
@@ -172,7 +193,7 @@ async def utils_page(
                 "id": str(acc["_id"]),
                 "email": acc["email"],
                 "username": acc.get("username") or "—",
-                "name": acc.get("name") or "—",
+                "name": acc.get("name") or acc.get("username") or "—",
                 "bio": acc.get("bio") or "",
                 "token_valid": acc.get("token_valid", False),
                 "has_2fa": acc.get("two_fa_secret") is not None,
