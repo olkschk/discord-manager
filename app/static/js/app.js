@@ -467,14 +467,21 @@ function copyText(text) {
   if (navigator.clipboard && window.isSecureContext) {
     return navigator.clipboard.writeText(text);
   }
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.style.cssText = "position:fixed;left:-9999px;top:0;opacity:.01;";
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  try { document.execCommand("copy"); } catch {}
-  document.body.removeChild(ta);
+  // Robust fallback: visible input in viewport so execCommand works on HTTP
+  const el = document.createElement("textarea");
+  el.value = text;
+  el.setAttribute("readonly", "");
+  el.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;padding:0;border:none;outline:none;box-shadow:none;background:transparent;color:transparent;z-index:99999;";
+  document.body.appendChild(el);
+  el.focus();
+  el.setSelectionRange(0, text.length);
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch {}
+  document.body.removeChild(el);
+  if (!ok) {
+    // Last resort: prompt the user
+    window.prompt("Copy this value:", text);
+  }
   return Promise.resolve();
 }
 
