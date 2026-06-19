@@ -170,14 +170,16 @@
                 data-username="{{ a.username | lower }}"
                 data-name="{{ a.name | lower }}">
               <td><input type="checkbox" class="row-check" value="{{ a.id }}"></td>
-              <td class="email copyable" data-copy="{{ a.email }}" title="Click to copy" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-                {% if a.avatar_url %}
-                <img src="{{ a.avatar_url }}" alt="" style="width:20px;height:20px;border-radius:50%;object-fit:cover;flex-shrink:0;" />
-                {% else %}
-                <span style="width:20px;height:20px;border-radius:50%;background:var(--surface-raised);display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:var(--text-disabled);flex-shrink:0;">?</span>
-                {% endif %}
-                {% if a.is_donor %}<span class="donor-badge" title="Donor — drives topic monitor">DONOR</span>{% endif %}
-                {{ a.email }}
+              <td class="email copyable" data-copy="{{ a.email }}" title="Click to copy" style="cursor:pointer;">
+                <div style="display:inline-flex;align-items:center;gap:6px;">
+                  {% if a.avatar_url %}
+                  <img src="{{ a.avatar_url }}" alt="" style="width:18px;height:18px;border-radius:50%;object-fit:cover;vertical-align:middle;" />
+                  {% else %}
+                  <span style="display:inline-flex;width:18px;height:18px;border-radius:50%;background:var(--surface-raised);align-items:center;justify-content:center;font-size:8px;color:var(--text-disabled);vertical-align:middle;">?</span>
+                  {% endif %}
+                  {% if a.is_donor %}<span class="donor-badge" title="Donor — drives topic monitor">DONOR</span>{% endif %}
+                  <span>{{ a.email }}</span>
+                </div>
               </td>
               <td>{{ a.username }}</td>
               <td>{{ a.name }}</td>
