@@ -49,8 +49,10 @@
           {% for a in accounts %}
           <label class="rowlist__row stage-acc-row" data-group="{{ a.group }}">
             <input type="checkbox" class="acc-check" data-section="stage" value="{{ a.id }}" />
-            {% if a.avatar_url %}<img src="{{ a.avatar_url }}" alt="" style="width:18px;height:18px;border-radius:50%;object-fit:cover;" />{% else %}<span style="display:inline-flex;width:18px;height:18px;border-radius:50%;background:var(--surface-raised);align-items:center;justify-content:center;font-size:8px;color:var(--text-disabled);">?</span>{% endif %}
-            <span class="rowlist__primary">{{ a.email }}</span>
+            <span class="rowlist__primary" style="display:inline-flex;align-items:center;gap:5px;">
+              {% if a.avatar_url %}<img src="{{ a.avatar_url }}" alt="" style="width:18px;height:18px;border-radius:50%;object-fit:cover;" />{% else %}<span style="display:inline-flex;width:18px;height:18px;border-radius:50%;background:var(--surface-raised);align-items:center;justify-content:center;font-size:8px;color:var(--text-disabled);">?</span>{% endif %}
+              {{ a.email }}
+            </span>
             <span class="rowlist__meta">{{ a.name or a.username }}</span>
             <span class="status {% if a.joined_voice %}ok{% else %}muted{% endif %}">
               {{ "in stage" if a.joined_voice else "—" }}
@@ -115,8 +117,10 @@
             {% for a in accounts %}
             <label class="rowlist__row speak-acc-row" data-group="{{ a.group }}">
               <input type="checkbox" class="acc-check" data-section="speak" value="{{ a.id }}" {% if not a.joined_voice %}disabled{% endif %} />
-              {% if a.avatar_url %}<img src="{{ a.avatar_url }}" alt="" style="width:18px;height:18px;border-radius:50%;object-fit:cover;" />{% else %}<span style="display:inline-flex;width:18px;height:18px;border-radius:50%;background:var(--surface-raised);align-items:center;justify-content:center;font-size:8px;color:var(--text-disabled);">?</span>{% endif %}
-              <span class="rowlist__primary">{{ a.email }}</span>
+              <span class="rowlist__primary" style="display:inline-flex;align-items:center;gap:5px;">
+                {% if a.avatar_url %}<img src="{{ a.avatar_url }}" alt="" style="width:18px;height:18px;border-radius:50%;object-fit:cover;" />{% else %}<span style="display:inline-flex;width:18px;height:18px;border-radius:50%;background:var(--surface-raised);align-items:center;justify-content:center;font-size:8px;color:var(--text-disabled);">?</span>{% endif %}
+                {{ a.email }}
+              </span>
               <span class="rowlist__meta">{{ a.name or a.username }}</span>
               <span class="status {% if a.joined_voice %}ok{% else %}muted{% endif %}">{{ "in stage" if a.joined_voice else "—" }}</span>
             </label>
