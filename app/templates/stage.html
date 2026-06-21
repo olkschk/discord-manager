@@ -36,9 +36,18 @@
           </label>
         </div>
 
-        <div class="rowlist" style="margin-top: var(--sp-md);">
+        <!-- Group filter -->
+        <div style="display:flex; gap:var(--sp-xs); margin-top:var(--sp-md); flex-wrap:wrap;">
+          {% for grp in ["All", "Massovka1", "Massovka2", "Massovka3", "Chatter1", "Chatter2", "Chatter3", "Infl1", "Infl2", "Infl3"] %}
+          <button type="button" class="stage-group-btn{% if grp == 'All' %} primary{% endif %}" data-group="{{ grp }}"
+            style="font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:3px 7px;border-radius:4px;border:1px solid var(--border-visible);cursor:pointer;">
+            {{ grp }}
+          </button>
+          {% endfor %}
+        </div>
+        <div class="rowlist" style="margin-top: var(--sp-sm);">
           {% for a in accounts %}
-          <label class="rowlist__row">
+          <label class="rowlist__row stage-acc-row" data-group="{{ a.group }}">
             <input type="checkbox" class="acc-check" data-section="stage" value="{{ a.id }}" />
             <span class="rowlist__primary">{{ a.email }}</span>
             <span class="rowlist__meta">{{ a.name or a.username }}</span>
@@ -321,9 +330,26 @@ async function sendSpeakRequest(request) {
 document.getElementById("requestSpeakBtn").addEventListener("click", () => sendSpeakRequest(true));
 document.getElementById("withdrawSpeakBtn").addEventListener("click", () => sendSpeakRequest(false));
 
+// ── Group filter ─────────────────────────────────────────────────────
+document.querySelectorAll(".stage-group-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".stage-group-btn").forEach(b => { b.classList.remove("primary"); b.style.background = "transparent"; b.style.color = "var(--text-secondary)"; });
+    btn.classList.add("primary"); btn.style.background = "var(--text-display)"; btn.style.color = "var(--black)";
+    const grp = btn.dataset.group;
+    document.querySelectorAll(".stage-acc-row").forEach(row => {
+      row.style.display = (grp === "All" || row.dataset.group === grp) ? "" : "none";
+    });
+  });
+});
+
 // ── Connect / Leave ───────────────────────────────────────────────────
 document.getElementById("stageSelectAllBtn").addEventListener("click", () => {
-  document.querySelectorAll('.acc-check[data-section="stage"]:not(:disabled)').forEach(c => c.checked = true);
+  document.querySelectorAll('.stage-acc-row').forEach(row => {
+    if (row.style.display !== "none") {
+      const cb = row.querySelector('.acc-check[data-section="stage"]:not(:disabled)');
+      if (cb) cb.checked = true;
+    }
+  });
 });
 
 document.getElementById("stageJoinBtn").addEventListener("click", async () => {
