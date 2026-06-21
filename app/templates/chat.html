@@ -542,15 +542,11 @@ function appendMessage(m) {
   document.getElementById("messageCount").textContent = `${count} stored`;
 }
 
-// Smart refresh — only appends messages not yet in DOM (called on SSE reconnect)
+// Full refresh on SSE reconnect — re-render from server to stay in sync
 async function refreshNewMessages() {
   if (!currentTopic) return;
   try {
-    const r = await fetch(`/api/chat/topic/${currentTopic}/messages`);
-    const data = await r.json();
-    const existing = new Set([...messagesEl.querySelectorAll("[data-id]")].map(el => el.dataset.id).filter(Boolean));
-    data.filter(m => m.discord_message_id && !existing.has(m.discord_message_id))
-        .forEach(m => appendMessage(m));
+    await loadTopicMessages();
   } catch {}
 }
 
