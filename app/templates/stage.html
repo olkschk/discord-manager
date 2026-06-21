@@ -113,6 +113,14 @@
         </div>
         <article class="panel" style="gap:var(--sp-md);">
           <p class="panel__hint">Account must already be connected to the stage channel. Uses Guild / Channel ID from above.</p>
+          <div style="display:flex; gap:var(--sp-xs); flex-wrap:wrap;">
+            {% for grp in ["All", "Massovka1", "Massovka2", "Massovka3", "Chatter1", "Chatter2", "Chatter3", "Infl1", "Infl2", "Infl3"] %}
+            <button type="button" class="speak-group-btn{% if grp == 'All' %} primary{% endif %}" data-group="{{ grp }}"
+              style="font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:3px 7px;border-radius:4px;border:1px solid var(--border-visible);cursor:pointer;">
+              {{ grp }}
+            </button>
+            {% endfor %}
+          </div>
           <div class="rowlist" style="max-height:240px;overflow-y:auto;">
             {% for a in accounts %}
             <label class="rowlist__row speak-acc-row" data-group="{{ a.group }}">
@@ -340,8 +348,25 @@ async function sendSpeakRequest(request) {
 
 document.getElementById("requestSpeakBtn").addEventListener("click", () => sendSpeakRequest(true));
 document.getElementById("withdrawSpeakBtn").addEventListener("click", () => sendSpeakRequest(false));
+// Speak group filter
+document.querySelectorAll(".speak-group-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".speak-group-btn").forEach(b => { b.classList.remove("primary"); b.style.background = "transparent"; b.style.color = "var(--text-secondary)"; });
+    btn.classList.add("primary"); btn.style.background = "var(--text-display)"; btn.style.color = "var(--black)";
+    const grp = btn.dataset.group;
+    document.querySelectorAll(".speak-acc-row").forEach(row => {
+      row.style.display = (grp === "All" || row.dataset.group === grp) ? "" : "none";
+    });
+  });
+});
+
 document.getElementById("speakSelectAllBtn")?.addEventListener("click", () => {
-  document.querySelectorAll('.acc-check[data-section="speak"]:not(:disabled)').forEach(c => c.checked = true);
+  document.querySelectorAll('.speak-acc-row').forEach(row => {
+    if (row.style.display !== "none") {
+      const cb = row.querySelector('.acc-check[data-section="speak"]:not(:disabled)');
+      if (cb) cb.checked = true;
+    }
+  });
 });
 
 // ── Group filter ─────────────────────────────────────────────────────
