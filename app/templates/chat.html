@@ -652,19 +652,22 @@ document.getElementById("sendForm").addEventListener("submit", async (e) => {
     return;
   }
 
-  // Duplicate mode
+  // Duplicate mode (fire-and-forget — server sends in background)
   if (document.getElementById("duplicateToggle").checked) {
     const channels = [...dupSelected];
     if (!channels.length) { out.className="result err"; out.textContent="Select at least one channel"; return; }
-    const total = channels.length;
-    out.className = "result"; out.textContent = `Sending 1/${total}…`;
     const r = await fetch("/api/chat/duplicate", { method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ account_id: accountId, channel_ids: channels, content: text }) });
     const d = await r.json();
-    const ok = (d.results||[]).filter(x=>x.ok).length;
-    out.className = ok>0?"result ok":"result err";
-    out.textContent = `${ok}/${total} sent`;
-    if (ok>0) { document.getElementById("sendText").value=""; setReply(null); }
+    if (r.ok && d.ok) {
+      out.className = "result ok";
+      out.textContent = `Queued ${d.queued} channel(s) — sending in background`;
+      document.getElementById("sendText").value = "";
+      setReply(null);
+    } else {
+      out.className = "result err";
+      out.textContent = d.detail || d.error || `Error ${r.status}`;
+    }
     return;
   }
 
