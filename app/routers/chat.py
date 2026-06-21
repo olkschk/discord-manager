@@ -34,12 +34,25 @@ async def _send_with_typing(
     reply_to: str | None = None,
     proxy_url: str | None = None,
 ) -> dict | None:
-    """Trigger typing then send. Bounded by _send_sem (max 3 concurrent)."""
+    """Trigger typing then send. Delay scales with message length (~50 WPM).
+
+    Discord's typing indicator lasts ~8 s, so for longer delays we
+    re-trigger typing every 7 s to keep the pencil visible.
+    """
     async with _send_sem:
-        base = max(0.5, min(2.0, len(content) * 0.03))
-        delay = base * random.uniform(0.8, 1.2)
+        # ~0.06 s per char ≈ 50 WPM, clamped to [1, 15] s
+        base = max(1.0, min(15.0, len(content) * 0.06))
+        delay = base * random.uniform(0.85, 1.15)
+
         await trigger_typing(token, channel_id, proxy_url=proxy_url)
-        await asyncio.sleep(delay)
+        remaining = delay
+        while remaining > 0:
+            chunk = min(remaining, 7.0)
+            await asyncio.sleep(chunk)
+            remaining -= chunk
+            if remaining > 0:
+                await trigger_typing(token, channel_id, proxy_url=proxy_url)
+
         return await send_message(token, channel_id, content, reply_to=reply_to, proxy_url=proxy_url)
 
 
