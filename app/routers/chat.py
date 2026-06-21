@@ -20,6 +20,11 @@ from app.services.discord_api import add_reaction, get_or_create_dm_channel, sen
 
 MAX_FILE_BYTES = 8 * 1024 * 1024  # Discord non-Nitro limit
 
+# ── Send queue: limits concurrent sends to avoid event-loop saturation ───────
+_send_sem = asyncio.Semaphore(3)
+_pending_sends: set[asyncio.Task] = set()
+_MAX_PENDING = 20
+
 
 async def _send_with_typing(
     token: str,
@@ -29,18 +34,13 @@ async def _send_with_typing(
     reply_to: str | None = None,
     proxy_url: str | None = None,
 ) -> dict | None:
-    """Trigger '<user> is typing...' then send after a short delay.
-
-    Delay: 0.04 s per character, clamped to [0.8, 3.0] s — fast enough
-    to not block the UI, slow enough to look human.
-    """
-    base = max(0.8, min(3.0, len(content) * 0.04))
-    delay = base * random.uniform(0.8, 1.2)
-
-    await trigger_typing(token, channel_id, proxy_url=proxy_url)
-    await asyncio.sleep(delay)
-
-    return await send_message(token, channel_id, content, reply_to=reply_to, proxy_url=proxy_url)
+    """Trigger typing then send. Bounded by _send_sem (max 3 concurrent)."""
+    async with _send_sem:
+        base = max(0.5, min(2.0, len(content) * 0.03))
+        delay = base * random.uniform(0.8, 1.2)
+        await trigger_typing(token, channel_id, proxy_url=proxy_url)
+        await asyncio.sleep(delay)
+        return await send_message(token, channel_id, content, reply_to=reply_to, proxy_url=proxy_url)
 
 
 router = APIRouter(
@@ -66,6 +66,11 @@ async def send(body: SendBody, user: str = Depends(require_login)) -> dict:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
 
+    # Drop oldest pending sends if queue is full
+    _pending_sends.discard(*(t for t in list(_pending_sends) if t.done()))
+    if len(_pending_sends) >= _MAX_PENDING:
+        return {"sent": False, "error": "too_many_pending"}
+
     async def _bg() -> None:
         try:
             await _send_with_typing(
@@ -75,7 +80,9 @@ async def send(body: SendBody, user: str = Depends(require_login)) -> dict:
         except Exception:  # noqa: BLE001
             logger.warning("send bg failed channel=%s", body.channel_id)
 
-    asyncio.create_task(_bg(), name="chat-send")
+    task = asyncio.create_task(_bg(), name="chat-send")
+    _pending_sends.add(task)
+    task.add_done_callback(_pending_sends.discard)
     return {"sent": True}
 
 
