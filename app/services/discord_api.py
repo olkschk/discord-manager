@@ -10,6 +10,7 @@ import base64
 import json as _json
 import logging
 import os
+import time
 from typing import Any
 from urllib.parse import urlparse
 
@@ -82,7 +83,7 @@ _CTX_CHAT_INPUT = base64.b64encode(b'{"location":"chat_input"}').decode()
 def _make_nonce() -> str:
     """Generate a Discord snowflake nonce from current timestamp.
     Without this Discord may flag the message as suspicious."""
-    return str((int(_time.time() * 1000) - _DISCORD_EPOCH) << 22)
+    return str((int(time.time() * 1000) - _DISCORD_EPOCH) << 22)
 
 
 def _headers(token: str) -> dict[str, str]:

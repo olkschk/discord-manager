@@ -76,10 +76,10 @@
       <section style="display:grid; grid-template-rows:auto auto 1fr auto; overflow:hidden;">
 
         <!-- Account picker — group filter + avatar icons above chat -->
-        <div style="padding:var(--sp-sm) var(--sp-lg); border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:var(--sp-xs);">
+        <div style="padding:var(--sp-sm) var(--sp-lg); border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:var(--sp-xs); min-width:0;">
           <!-- Group tabs -->
-          <div style="display:flex; gap:var(--sp-xs);">
-            <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--text-disabled);align-self:center;margin-right:4px;">Group:</span>
+          <div style="display:flex; gap:var(--sp-xs); overflow-x:auto; scrollbar-width:thin;">
+            <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--text-disabled);align-self:center;margin-right:4px;flex-shrink:0;">Group:</span>
             {% for grp in ["All", "Massovka1", "Massovka2", "Massovka3", "Chatter1", "Chatter2", "Chatter3", "Infl1", "Infl2", "Infl3"] %}
             <button type="button" class="group-tab-btn{% if grp == 'All' %} active-group{% endif %}" data-group="{{ grp }}"
               style="font-family:var(--font-mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;padding:3px 8px;border-radius:4px;border:1px solid var(--border-visible);background:{% if grp == 'All' %}var(--text-display){% else %}transparent{% endif %};color:{% if grp == 'All' %}var(--black){% else %}var(--text-secondary){% endif %};cursor:pointer;">

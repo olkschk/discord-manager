@@ -104,9 +104,18 @@
           </label>
         </div>
         <input type="hidden" id="activityMode" value="random" />
-        <div class="rowlist">
+        <!-- Group filter -->
+        <div style="display:flex; gap:var(--sp-xs); margin-bottom:var(--sp-sm); flex-wrap:wrap;">
+          {% for grp in ["All", "Massovka1", "Massovka2", "Massovka3", "Chatter1", "Chatter2", "Chatter3", "Infl1", "Infl2", "Infl3"] %}
+          <button type="button" class="activity-group-btn{% if grp == 'All' %} primary{% endif %}" data-group="{{ grp }}"
+            style="font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:3px 7px;border-radius:4px;border:1px solid var(--border-visible);cursor:pointer;">
+            {{ grp }}
+          </button>
+          {% endfor %}
+        </div>
+        <div class="rowlist" id="activityAccountList">
           {% for a in accounts %}
-          <label class="rowlist__row">
+          <label class="rowlist__row activity-acc-row" data-group="{{ a.group }}">
             <input type="checkbox" class="acc-check" data-section="activity" value="{{ a.id }}" {% if not a.token_valid %}disabled{% endif %} />
             <span class="rowlist__primary">{{ a.email }}</span>
             <span class="rowlist__meta">{{ a.name or a.username }}</span>
@@ -756,8 +765,25 @@ document.getElementById("activityCustomStart")?.addEventListener("change", (e) =
   field.style.display = e.target.checked ? "flex" : "none";
 });
 
+// Activity group filter
+document.querySelectorAll(".activity-group-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".activity-group-btn").forEach(b => { b.classList.remove("primary"); b.style.background = "transparent"; b.style.color = "var(--text-secondary)"; });
+    btn.classList.add("primary"); btn.style.background = "var(--text-display)"; btn.style.color = "var(--black)";
+    const grp = btn.dataset.group;
+    document.querySelectorAll(".activity-acc-row").forEach(row => {
+      row.style.display = (grp === "All" || row.dataset.group === grp) ? "" : "none";
+    });
+  });
+});
+
 document.getElementById("activitySelectAll")?.addEventListener("click", () => {
-  document.querySelectorAll('.acc-check[data-section="activity"]:not(:disabled)').forEach(c => c.checked = true);
+  document.querySelectorAll('.activity-acc-row').forEach(row => {
+    if (row.style.display !== "none") {
+      const cb = row.querySelector('.acc-check[data-section="activity"]:not(:disabled)');
+      if (cb) cb.checked = true;
+    }
+  });
 });
 document.getElementById("activityApplyBtn")?.addEventListener("click", async () => {
   const out = document.getElementById("activityResult");

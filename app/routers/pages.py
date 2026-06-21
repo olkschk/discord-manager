@@ -196,6 +196,7 @@ async def utils_page(
                 "name": acc.get("name") or acc.get("username") or "—",
                 "bio": acc.get("bio") or "",
                 "avatar_url": _avatar_url(acc),
+                "group": acc.get("group", "Massovka1"),
                 "token_valid": acc.get("token_valid", False),
                 "has_2fa": acc.get("two_fa_secret") is not None,
                 "joined_server": acc.get("joined_server", False),
