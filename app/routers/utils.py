@@ -21,6 +21,7 @@ from app.services.discord_api import (
     enable_mfa,
     join_invite,
     patch_profile,
+    set_custom_status,
 )
 
 router = APIRouter(
@@ -121,6 +122,7 @@ class CustomIdentityBody(BaseModel):
     global_name: str | None = Field(None, max_length=32)
     bio: str | None = Field(None, max_length=190)
     avatar_base64: str | None = None
+    custom_status: str | None = Field(None, max_length=128)
 
 
 @router.post("/identity/custom")
@@ -129,7 +131,9 @@ async def set_custom_identity(
     user: str = Depends(require_login),
 ) -> dict:
     """Apply manually-entered identity fields to a single account."""
-    if not body.username and body.global_name is None and body.bio is None and body.avatar_base64 is None:
+    has_profile = body.username or body.global_name is not None or body.bio is not None or body.avatar_base64
+    has_status = body.custom_status is not None
+    if not has_profile and not has_status:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "At least one field required")
 
     resolved = await load_account_token_and_proxy(body.account_id, owner=user)
@@ -137,38 +141,46 @@ async def set_custom_identity(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     acc, token, proxy_url = resolved
 
-    try:
-        password = decrypt(acc["password"])
-    except (ValueError, KeyError):
-        password = None
+    # Profile fields (username / display name / bio / avatar)
+    if has_profile:
+        try:
+            password = decrypt(acc["password"])
+        except (ValueError, KeyError):
+            password = None
 
-    conn = await gateway_pool.get_or_create(body.account_id)
-    if conn is None:
-        logger.warning("set_custom_identity: no gateway for %s — trying anyway", body.account_id)
+        conn = await gateway_pool.get_or_create(body.account_id)
+        if conn is None:
+            logger.warning("set_custom_identity: no gateway for %s — trying anyway", body.account_id)
 
-    out = await patch_profile(
-        token,
-        username=body.username or None,
-        global_name=body.global_name,
-        bio=body.bio,
-        avatar_base64=body.avatar_base64,
-        password=password,
-        proxy_url=proxy_url,
-    )
-    if out is None:
-        return {"ok": False, "error": "discord_patch_failed"}
+        out = await patch_profile(
+            token,
+            username=body.username or None,
+            global_name=body.global_name,
+            bio=body.bio,
+            avatar_base64=body.avatar_base64,
+            password=password,
+            proxy_url=proxy_url,
+        )
+        if out is None:
+            return {"ok": False, "error": "discord_patch_failed"}
 
-    update: dict = {}
-    if body.username:
-        update["username"] = body.username
-    if body.global_name is not None:
-        update["name"] = body.global_name
-    if body.bio is not None:
-        update["bio"] = body.bio
-    if isinstance(out, dict) and out.get("avatar"):
-        update["avatar"] = out["avatar"]
-    if update:
-        await discords().update_one({"_id": ObjectId(body.account_id)}, {"$set": update})
+        update: dict = {}
+        if body.username:
+            update["username"] = body.username
+        if body.global_name is not None:
+            update["name"] = body.global_name
+        if body.bio is not None:
+            update["bio"] = body.bio
+        if isinstance(out, dict) and out.get("avatar"):
+            update["avatar"] = out["avatar"]
+        if update:
+            await discords().update_one({"_id": ObjectId(body.account_id)}, {"$set": update})
+
+    # Custom status text (settings-proto endpoint)
+    if has_status:
+        res = await set_custom_status(token, body.custom_status or "", proxy_url=proxy_url)
+        if not res.get("ok"):
+            return {"ok": False, "error": "custom_status_failed"}
 
     return {"ok": True}
 

@@ -1109,6 +1109,51 @@ def _build_status_proto(status: str) -> str:
     return base64.b64encode(outer).decode("ascii")
 
 
+def _build_custom_status_proto(text: str) -> str:
+    """Build a base64 PreloadedUserSettings proto with only the custom status text.
+
+    Field 11 (StatusSettings) -> field 2 (CustomStatus) -> field 1 (text string).
+    Empty text clears the custom status.
+    """
+    text_bytes = text.encode("utf-8")
+    if text_bytes:
+        text_field = bytes([0x0A, len(text_bytes)]) + text_bytes  # field 1, wiretype 2
+    else:
+        text_field = b""
+    custom_status = bytes([0x12, len(text_field)]) + text_field  # field 2, wiretype 2
+    outer = bytes([0x5A, len(custom_status)]) + custom_status  # field 11, wiretype 2
+    return base64.b64encode(outer).decode("ascii")
+
+
+async def set_custom_status(
+    token: str,
+    text: str,
+    *,
+    proxy_url: str | None = None,
+) -> dict[str, Any]:
+    """PATCH /users/@me/settings-proto/1 — set or clear the custom status text."""
+    settings = get_settings()
+    timeout = ClientTimeout(total=10)
+    payload = {"settings": _build_custom_status_proto(text)}
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.patch(
+                f"{settings.discord_api_base}/users/@me/settings-proto/1",
+                headers=_headers(token),
+                json=payload,
+                proxy=proxy_url,
+                ssl=False,
+            ) as resp:
+                if resp.status == 200:
+                    return {"ok": True}
+                body = await resp.text()
+                logger.warning("set_custom_status status=%s body=%.200s", resp.status, body)
+                return {"ok": False, "status": resp.status, "body": body}
+    except (ClientError, TimeoutError) as exc:
+        logger.warning("set_custom_status network error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
 async def set_user_status(
     token: str,
     status: str,

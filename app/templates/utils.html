@@ -355,6 +355,10 @@
         <span>Bio</span>
         <textarea id="ciBio" rows="3" placeholder="About me (max 190)" maxlength="190"></textarea>
       </label>
+      <label>
+        <span>Custom status <span style="color:var(--text-disabled);">(text under nickname, empty = clear)</span></span>
+        <input type="text" id="ciCustomStatus" placeholder="Playing something…" maxlength="128" />
+      </label>
       <div>
         <label>
           <span>Avatar <span style="color:var(--text-disabled);">(PNG/JPG, max 8 MB)</span></span>
@@ -828,16 +832,21 @@ document.getElementById("activityClearBtn")?.addEventListener("click", async () 
 // ── Custom Identity modal ────────────────────────────────────────────────
 let customAccountId = null;
 let usernameCheckTimer = null;
+let ciOriginal = {};
 
 function openCustomModal(row) {
   customAccountId = row.dataset.id;
+  const origUsername = row.dataset.username !== "—" ? (row.dataset.username || "") : "";
+  const origName = row.dataset.name !== "—" ? (row.dataset.name || "") : "";
+  const origBio = row.dataset.bio || "";
+  ciOriginal = { username: origUsername, global_name: origName, bio: origBio };
   document.getElementById("ciEmail").textContent = row.dataset.email || "";
-  document.getElementById("ciUsername").value = row.dataset.username !== "—" ? (row.dataset.username || "") : "";
-  document.getElementById("ciGlobalName").value = row.dataset.name !== "—" ? (row.dataset.name || "") : "";
-  document.getElementById("ciBio").value = row.dataset.bio || "";
+  document.getElementById("ciUsername").value = origUsername;
+  document.getElementById("ciGlobalName").value = origName;
+  document.getElementById("ciBio").value = origBio;
   document.getElementById("ciResult").textContent = "";
   document.getElementById("ciResult").className = "result";
-  // Reset avatar
+  document.getElementById("ciCustomStatus").value = "";
   document.getElementById("ciAvatarFile").value = "";
   document.getElementById("ciAvatarLabel").textContent = "Choose image…";
   document.getElementById("ciAvatarPreview").hidden = true;
@@ -909,12 +918,19 @@ document.getElementById("ciUsername")?.addEventListener("input", () => {
 document.getElementById("ciForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const out = document.getElementById("ciResult");
-  const username = document.getElementById("ciUsername").value.trim() || null;
-  const global_name = document.getElementById("ciGlobalName").value.trim() || null;
-  const bio = document.getElementById("ciBio").value.trim() !== "" ? document.getElementById("ciBio").value.trim() : null;
+  const rawUsername = document.getElementById("ciUsername").value.trim();
+  const rawName = document.getElementById("ciGlobalName").value.trim();
+  const rawBio = document.getElementById("ciBio").value.trim();
   const avatarFile = document.getElementById("ciAvatarFile").files[0] || null;
+  const csField = document.getElementById("ciCustomStatus");
+  const custom_status = csField.value !== "" ? csField.value : null;
 
-  if (!username && !global_name && bio === null && !avatarFile) {
+  // Only send profile fields that actually changed from the pre-filled values
+  const username = (rawUsername && rawUsername !== ciOriginal.username) ? rawUsername : null;
+  const global_name = (rawName !== ciOriginal.global_name) ? (rawName || null) : null;
+  const bio = (rawBio !== ciOriginal.bio) ? (rawBio || null) : null;
+
+  if (!username && global_name === null && bio === null && !avatarFile && custom_status === null) {
     setResult(out, false, "Fill at least one field");
     return;
   }
@@ -933,7 +949,7 @@ document.getElementById("ciForm")?.addEventListener("submit", async (e) => {
   const r = await fetch("/api/utils/identity/custom", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ account_id: customAccountId, username, global_name, bio, avatar_base64 }),
+    body: JSON.stringify({ account_id: customAccountId, username, global_name, bio, avatar_base64, custom_status }),
   });
   const data = await r.json();
   if (r.ok && data.ok) {
