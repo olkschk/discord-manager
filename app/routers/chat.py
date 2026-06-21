@@ -65,12 +65,18 @@ async def send(body: SendBody, user: str = Depends(require_login)) -> dict:
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
-    msg = await _send_with_typing(
-        token, body.channel_id, body.content, reply_to=body.reply_to, proxy_url=proxy_url
-    )
-    if msg is None:
-        return {"sent": False}
-    return {"sent": True, "message_id": msg.get("id")}
+
+    async def _bg() -> None:
+        try:
+            await _send_with_typing(
+                token, body.channel_id, body.content,
+                reply_to=body.reply_to, proxy_url=proxy_url,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("send bg failed channel=%s", body.channel_id)
+
+    asyncio.create_task(_bg(), name="chat-send")
+    return {"sent": True}
 
 
 class DuplicateBody(BaseModel):
