@@ -42,6 +42,8 @@ async def lifespan(app: FastAPI):
         await topic_listener.stop()
         await monitor_service.stop()
         await gateway_pool.close_all()
+        from app.services.discord_api import close_shared_session
+        await close_shared_session()
         await database.disconnect()
 
 

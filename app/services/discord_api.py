@@ -22,6 +22,29 @@ from app.services.captcha import maybe_solve_for_response, solve_hcaptcha
 
 logger = logging.getLogger(__name__)
 
+# ── Shared aiohttp session (reuses TCP connections) ──────────────────────────
+_shared_session: aiohttp.ClientSession | None = None
+
+
+def _get_session() -> aiohttp.ClientSession:
+    """Return a module-level shared session, creating it on first use."""
+    global _shared_session
+    if _shared_session is None or _shared_session.closed:
+        _shared_session = aiohttp.ClientSession(
+            timeout=ClientTimeout(total=15),
+            connector=aiohttp.TCPConnector(limit=30, limit_per_host=10),
+        )
+    return _shared_session
+
+
+async def close_shared_session() -> None:
+    """Call on app shutdown to clean up."""
+    global _shared_session
+    if _shared_session and not _shared_session.closed:
+        await _shared_session.close()
+        _shared_session = None
+
+
 # Discord build number used in X-Super-Properties.
 # Update this if Discord starts rejecting the fingerprint.
 _CLIENT_BUILD_NUMBER = 539147
@@ -128,12 +151,12 @@ async def validate_token(
     timeout = ClientTimeout(total=settings.discord_http_timeout)
 
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=_headers(token), proxy=proxy_url) as resp:
-                if resp.status == 200:
-                    return True, await resp.json()
-                logger.info("Token validation failed (status=%s)", resp.status)
-                return False, None
+        session = _get_session()
+        async with session.get(url, headers=_headers(token), proxy=proxy_url) as resp:
+            if resp.status == 200:
+                return True, await resp.json()
+            logger.info("Token validation failed (status=%s)", resp.status)
+            return False, None
     except (ClientError, TimeoutError) as exc:
         logger.warning("Token validation network error: %s", exc)
         return False, None
@@ -150,12 +173,12 @@ async def check_needs_verification(
     url = f"{settings.discord_api_base}/users/@me/referrals/eligibility"
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            async with s.get(url, headers=_headers(token), proxy=proxy_url) as resp:
-                if resp.status == 400:
-                    data = await resp.json()
-                    return isinstance(data, dict) and data.get("code") == 40002
-                return False
+        s = _get_session()
+        async with s.get(url, headers=_headers(token), proxy=proxy_url) as resp:
+            if resp.status == 400:
+                data = await resp.json()
+                return isinstance(data, dict) and data.get("code") == 40002
+            return False
     except (ClientError, TimeoutError) as exc:
         logger.warning("check_needs_verification error: %s", exc)
         return False
@@ -171,11 +194,11 @@ async def verify_resend(
     url = f"{settings.discord_api_base}/auth/verify/resend"
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            async with s.post(url, headers=_headers(token), proxy=proxy_url) as resp:
-                ok = resp.status < 400
-                logger.info("verify_resend status=%s", resp.status)
-                return ok
+        s = _get_session()
+        async with s.post(url, headers=_headers(token), proxy=proxy_url) as resp:
+            ok = resp.status < 400
+            logger.info("verify_resend status=%s", resp.status)
+            return ok
     except (ClientError, TimeoutError) as exc:
         logger.warning("verify_resend error: %s", exc)
         return False
@@ -194,18 +217,18 @@ async def get_or_create_dm_channel(
     url = f"{settings.discord_api_base}/users/@me/channels"
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            async with s.post(
-                url,
-                headers=_headers(token),
-                json={"recipient_id": recipient_id},
-                proxy=proxy_url,
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return data.get("id")
-                logger.info("get_or_create_dm_channel status=%s", resp.status)
-                return None
+        s = _get_session()
+        async with s.post(
+            url,
+            headers=_headers(token),
+            json={"recipient_id": recipient_id},
+            proxy=proxy_url,
+        ) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                return data.get("id")
+            logger.info("get_or_create_dm_channel status=%s", resp.status)
+            return None
     except (ClientError, TimeoutError) as exc:
         logger.warning("get_or_create_dm_channel error: %s", exc)
         return None
@@ -225,32 +248,32 @@ async def verify_with_token(
     payload: dict[str, Any] = {"token": verify_token}
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            async with s.post(url, headers=_headers(auth_token), json=payload, proxy=proxy_url) as resp:
-                data = await resp.json()
-                if resp.status == 200:
-                    return data
-                if _retry and isinstance(data, dict) and data.get("captcha_sitekey"):
-                    rqdata = data.get("captcha_rqdata") or None
-                    rqtoken = data.get("captcha_rqtoken", "")
-                    solved = await solve_hcaptcha(
-                        data["captcha_sitekey"],
-                        "https://discord.com/verify",
-                        rqdata=rqdata,
-                        proxy_url=proxy_url,
-                    )
-                    if solved:
-                        retry_payload = {**payload, "captcha_key": solved}
-                        if rqtoken:
-                            retry_payload["captcha_rqtoken"] = rqtoken
-                        async with s.post(url, headers=_headers(auth_token), json=retry_payload, proxy=proxy_url) as r2:
-                            data2 = await r2.json()
-                            if r2.status == 200:
-                                return data2
-                            logger.info("verify_with_token captcha retry status=%s body=%.200s", r2.status, str(data2))
-                            return None
-                logger.info("verify_with_token status=%s body=%.200s", resp.status, str(data))
-                return None
+        s = _get_session()
+        async with s.post(url, headers=_headers(auth_token), json=payload, proxy=proxy_url) as resp:
+            data = await resp.json()
+            if resp.status == 200:
+                return data
+            if _retry and isinstance(data, dict) and data.get("captcha_sitekey"):
+                rqdata = data.get("captcha_rqdata") or None
+                rqtoken = data.get("captcha_rqtoken", "")
+                solved = await solve_hcaptcha(
+                    data["captcha_sitekey"],
+                    "https://discord.com/verify",
+                    rqdata=rqdata,
+                    proxy_url=proxy_url,
+                )
+                if solved:
+                    retry_payload = {**payload, "captcha_key": solved}
+                    if rqtoken:
+                        retry_payload["captcha_rqtoken"] = rqtoken
+                    async with s.post(url, headers=_headers(auth_token), json=retry_payload, proxy=proxy_url) as r2:
+                        data2 = await r2.json()
+                        if r2.status == 200:
+                            return data2
+                        logger.info("verify_with_token captcha retry status=%s body=%.200s", r2.status, str(data2))
+                        return None
+            logger.info("verify_with_token status=%s body=%.200s", resp.status, str(data))
+            return None
     except (ClientError, TimeoutError) as exc:
         logger.warning("verify_with_token error: %s", exc)
         return None
@@ -302,20 +325,20 @@ async def send_message(
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     body: dict[str, Any] | None = None
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=headers, json=payload, proxy=proxy_url) as resp:
-                if resp.status in (200, 201):
-                    return await resp.json()
-                try:
-                    body = await resp.json()
-                except (aiohttp.ContentTypeError, ValueError):
-                    body = None
-                logger.info(
-                    "send_message status=%s keys=%s body=%.200s",
-                    resp.status,
-                    list(body.keys()) if isinstance(body, dict) else None,
-                    str(body),
-                )
+        session = _get_session()
+        async with session.post(url, headers=headers, json=payload, proxy=proxy_url) as resp:
+            if resp.status in (200, 201):
+                return await resp.json()
+            try:
+                body = await resp.json()
+            except (aiohttp.ContentTypeError, ValueError):
+                body = None
+            logger.info(
+                "send_message status=%s keys=%s body=%.200s",
+                resp.status,
+                list(body.keys()) if isinstance(body, dict) else None,
+                str(body),
+            )
     except (ClientError, TimeoutError) as exc:
         logger.warning("send_message network error: %s", exc)
         return None
@@ -381,17 +404,17 @@ async def send_message_with_files(
     }
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=headers, data=data, proxy=proxy_url) as resp:
-                if resp.status in (200, 201):
-                    return await resp.json()
-                body_preview = (await resp.text())[:200]
-                logger.info(
-                    "send_message_with_files failed status=%s body=%s",
-                    resp.status,
-                    body_preview,
-                )
-                return None
+        session = _get_session()
+        async with session.post(url, headers=headers, data=data, proxy=proxy_url) as resp:
+            if resp.status in (200, 201):
+                return await resp.json()
+            body_preview = (await resp.text())[:200]
+            logger.info(
+                "send_message_with_files failed status=%s body=%s",
+                resp.status,
+                body_preview,
+            )
+            return None
     except (ClientError, TimeoutError) as exc:
         logger.warning("send_message_with_files network error: %s", exc)
         return None
@@ -408,16 +431,16 @@ async def check_username(
     url = f"{settings.discord_api_base}/users/@me/pomelo-attempt"
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                url,
-                headers=_headers(token),
-                json={"username": username},
-                proxy=proxy_url,
-            ) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                return {"taken": True, "status": resp.status}
+        session = _get_session()
+        async with session.post(
+            url,
+            headers=_headers(token),
+            json={"username": username},
+            proxy=proxy_url,
+        ) as resp:
+            if resp.status == 200:
+                return await resp.json()
+            return {"taken": True, "status": resp.status}
     except (ClientError, TimeoutError) as exc:
         logger.warning("check_username network error: %s", exc)
         return {"taken": True, "error": str(exc)}
@@ -438,10 +461,10 @@ async def trigger_typing(
     url = f"{settings.discord_api_base}/channels/{channel_id}/typing"
     timeout = ClientTimeout(total=10)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=_headers(token), proxy=proxy_url) as resp:
-                if resp.status not in (200, 204):
-                    logger.debug("trigger_typing: channel=%s status=%d", channel_id, resp.status)
+        session = _get_session()
+        async with session.post(url, headers=_headers(token), proxy=proxy_url) as resp:
+            if resp.status not in (200, 204):
+                logger.debug("trigger_typing: channel=%s status=%d", channel_id, resp.status)
     except Exception as exc:  # noqa: BLE001
         logger.debug("trigger_typing: %s", exc)
 
@@ -473,12 +496,12 @@ async def get_channel_messages(
         kwargs["proxy"] = proxy_url
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, **kwargs) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                logger.warning("get_channel_messages: channel %s returned HTTP %d", channel_id, resp.status)
-                return []
+        session = _get_session()
+        async with session.get(url, **kwargs) as resp:
+            if resp.status == 200:
+                return await resp.json()
+            logger.warning("get_channel_messages: channel %s returned HTTP %d", channel_id, resp.status)
+            return []
     except (ClientError, TimeoutError, Exception) as exc:
         logger.error("get_channel_messages error for channel %s: %s", channel_id, exc)
         return []
@@ -504,12 +527,12 @@ async def add_reaction(
     )
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.put(url, headers=_headers(token), proxy=proxy_url) as resp:
-                if resp.status in (200, 204):
-                    return True
-                logger.info("add_reaction failed status=%s", resp.status)
-                return False
+        session = _get_session()
+        async with session.put(url, headers=_headers(token), proxy=proxy_url) as resp:
+            if resp.status in (200, 204):
+                return True
+            logger.info("add_reaction failed status=%s", resp.status)
+            return False
     except (ClientError, TimeoutError) as exc:
         logger.warning("add_reaction network error: %s", exc)
         return False
@@ -933,12 +956,12 @@ async def mfa_totp(
     del headers["Origin"]  # not needed for mfa endpoint
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=headers, json=payload, proxy=proxy_url) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                logger.info("mfa_totp failed status=%s", resp.status)
-                return None
+        session = _get_session()
+        async with session.post(url, headers=headers, json=payload, proxy=proxy_url) as resp:
+            if resp.status == 200:
+                return await resp.json()
+            logger.info("mfa_totp failed status=%s", resp.status)
+            return None
     except (ClientError, TimeoutError) as exc:
         logger.warning("mfa_totp network error: %s", exc)
         return None
@@ -1050,19 +1073,19 @@ async def create_stage_instance(
     settings = get_settings()
     timeout = ClientTimeout(total=10)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                f"{settings.discord_api_base}/stage-instances",
-                headers=_headers(token),
-                json={"channel_id": channel_id, "topic": topic, "privacy_level": privacy_level},
-                proxy=proxy_url,
-                ssl=False,
-            ) as resp:
-                body = await resp.json(content_type=None)
-                if resp.status in (200, 201):
-                    return {"ok": True, "stage": body}
-                logger.warning("create_stage_instance status=%s body=%.200s", resp.status, body)
-                return {"ok": False, "status": resp.status, "body": body}
+        session = _get_session()
+        async with session.post(
+            f"{settings.discord_api_base}/stage-instances",
+            headers=_headers(token),
+            json={"channel_id": channel_id, "topic": topic, "privacy_level": privacy_level},
+            proxy=proxy_url,
+            ssl=False,
+        ) as resp:
+            body = await resp.json(content_type=None)
+            if resp.status in (200, 201):
+                return {"ok": True, "stage": body}
+            logger.warning("create_stage_instance status=%s body=%.200s", resp.status, body)
+            return {"ok": False, "status": resp.status, "body": body}
     except (ClientError, TimeoutError) as exc:
         logger.warning("create_stage_instance network error: %s", exc)
         return {"ok": False, "error": str(exc)}
@@ -1078,18 +1101,18 @@ async def delete_stage_instance(
     settings = get_settings()
     timeout = ClientTimeout(total=10)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.delete(
-                f"{settings.discord_api_base}/stage-instances/{channel_id}",
-                headers=_headers(token),
-                proxy=proxy_url,
-                ssl=False,
-            ) as resp:
-                if resp.status == 204:
-                    return {"ok": True}
-                text = await resp.text()
-                logger.warning("delete_stage_instance status=%s body=%.200s", resp.status, text)
-                return {"ok": False, "status": resp.status, "body": text}
+        session = _get_session()
+        async with session.delete(
+            f"{settings.discord_api_base}/stage-instances/{channel_id}",
+            headers=_headers(token),
+            proxy=proxy_url,
+            ssl=False,
+        ) as resp:
+            if resp.status == 204:
+                return {"ok": True}
+            text = await resp.text()
+            logger.warning("delete_stage_instance status=%s body=%.200s", resp.status, text)
+            return {"ok": False, "status": resp.status, "body": text}
     except (ClientError, TimeoutError) as exc:
         logger.warning("delete_stage_instance network error: %s", exc)
         return {"ok": False, "error": str(exc)}
@@ -1136,19 +1159,19 @@ async def set_custom_status(
     timeout = ClientTimeout(total=10)
     payload = {"settings": _build_custom_status_proto(text)}
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.patch(
-                f"{settings.discord_api_base}/users/@me/settings-proto/1",
-                headers=_headers(token),
-                json=payload,
-                proxy=proxy_url,
-                ssl=False,
-            ) as resp:
-                if resp.status == 200:
-                    return {"ok": True}
-                body = await resp.text()
-                logger.warning("set_custom_status status=%s body=%.200s", resp.status, body)
-                return {"ok": False, "status": resp.status, "body": body}
+        session = _get_session()
+        async with session.patch(
+            f"{settings.discord_api_base}/users/@me/settings-proto/1",
+            headers=_headers(token),
+            json=payload,
+            proxy=proxy_url,
+            ssl=False,
+        ) as resp:
+            if resp.status == 200:
+                return {"ok": True}
+            body = await resp.text()
+            logger.warning("set_custom_status status=%s body=%.200s", resp.status, body)
+            return {"ok": False, "status": resp.status, "body": body}
     except (ClientError, TimeoutError) as exc:
         logger.warning("set_custom_status network error: %s", exc)
         return {"ok": False, "error": str(exc)}
@@ -1170,19 +1193,19 @@ async def set_user_status(
     timeout = ClientTimeout(total=10)
     payload = {"settings": _build_status_proto(status)}
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.patch(
-                f"{settings.discord_api_base}/users/@me/settings-proto/1",
-                headers=_headers(token),
-                json=payload,
-                proxy=proxy_url,
-                ssl=False,
-            ) as resp:
-                if resp.status == 200:
-                    return {"ok": True}
-                text = await resp.text()
-                logger.warning("set_user_status status=%s body=%.200s", resp.status, text)
-                return {"ok": False, "status": resp.status, "body": text}
+        session = _get_session()
+        async with session.patch(
+            f"{settings.discord_api_base}/users/@me/settings-proto/1",
+            headers=_headers(token),
+            json=payload,
+            proxy=proxy_url,
+            ssl=False,
+        ) as resp:
+            if resp.status == 200:
+                return {"ok": True}
+            text = await resp.text()
+            logger.warning("set_user_status status=%s body=%.200s", resp.status, text)
+            return {"ok": False, "status": resp.status, "body": text}
     except (ClientError, TimeoutError) as exc:
         logger.warning("set_user_status network error: %s", exc)
         return {"ok": False, "error": str(exc)}
@@ -1200,19 +1223,19 @@ async def set_voice_suppress(
     settings = get_settings()
     timeout = ClientTimeout(total=10)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.patch(
-                f"{settings.discord_api_base}/guilds/{guild_id}/voice-states/@me",
-                headers=_headers(token),
-                json={"channel_id": channel_id, "suppress": suppress},
-                proxy=proxy_url,
-                ssl=False,
-            ) as resp:
-                if resp.status == 204:
-                    return {"ok": True}
-                text = await resp.text()
-                logger.warning("set_voice_suppress status=%s body=%.200s", resp.status, text)
-                return {"ok": False, "status": resp.status, "body": text}
+        session = _get_session()
+        async with session.patch(
+            f"{settings.discord_api_base}/guilds/{guild_id}/voice-states/@me",
+            headers=_headers(token),
+            json={"channel_id": channel_id, "suppress": suppress},
+            proxy=proxy_url,
+            ssl=False,
+        ) as resp:
+            if resp.status == 204:
+                return {"ok": True}
+            text = await resp.text()
+            logger.warning("set_voice_suppress status=%s body=%.200s", resp.status, text)
+            return {"ok": False, "status": resp.status, "body": text}
     except (ClientError, TimeoutError) as exc:
         logger.warning("set_voice_suppress network error: %s", exc)
         return {"ok": False, "error": str(exc)}
@@ -1244,19 +1267,19 @@ async def request_to_speak(
     }
     timeout = ClientTimeout(total=10)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.patch(
-                f"{api}/guilds/{guild_id}/voice-states/@me",
-                headers=_headers(token),
-                json=body,
-                proxy=proxy_url,
-                ssl=False,
-            ) as resp:
-                if resp.status == 204:
-                    return {"ok": True}
-                text = await resp.text()
-                logger.warning("request_to_speak status=%s body=%.200s", resp.status, text)
-                return {"ok": False, "status": resp.status, "body": text}
+        session = _get_session()
+        async with session.patch(
+            f"{api}/guilds/{guild_id}/voice-states/@me",
+            headers=_headers(token),
+            json=body,
+            proxy=proxy_url,
+            ssl=False,
+        ) as resp:
+            if resp.status == 204:
+                return {"ok": True}
+            text = await resp.text()
+            logger.warning("request_to_speak status=%s body=%.200s", resp.status, text)
+            return {"ok": False, "status": resp.status, "body": text}
     except (ClientError, TimeoutError) as exc:
         logger.warning("request_to_speak network error: %s", exc)
         return {"ok": False, "error": str(exc)}
