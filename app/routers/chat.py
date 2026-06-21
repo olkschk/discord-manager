@@ -29,12 +29,12 @@ async def _send_with_typing(
     reply_to: str | None = None,
     proxy_url: str | None = None,
 ) -> dict | None:
-    """Trigger '<user> is typing...' for a human-like delay, then send the message.
+    """Trigger '<user> is typing...' then send after a short delay.
 
-    Delay formula: 0.07 s per character, clamped to [1.5, 8.0] s, with ±20% random
-    jitter — matches a real person typing at roughly 40–80 WPM.
+    Delay: 0.04 s per character, clamped to [0.8, 3.0] s — fast enough
+    to not block the UI, slow enough to look human.
     """
-    base = max(1.5, min(8.0, len(content) * 0.07))
+    base = max(0.8, min(3.0, len(content) * 0.04))
     delay = base * random.uniform(0.8, 1.2)
 
     await trigger_typing(token, channel_id, proxy_url=proxy_url)
