@@ -33,7 +33,12 @@ function bindAddForm(formId, resultId, url, label) {
     const msg = `${label}: added ${added}, skipped ${skipped}` + (errors.length ? ` — ${errors.length} error(s)` : "");
     asResult(result, added > 0 || errors.length === 0, msg);
     if (errors.length) {
-      result.innerHTML += "<br>" + errors.map(e => `<span style="color:var(--err);font-size:10px;">${e}</span>`).join("<br>");
+      errors.forEach(e => {
+        const line = document.createElement("div");
+        line.style.cssText = "color:var(--err);font-size:10px;margin-top:2px;";
+        line.textContent = e;
+        result.appendChild(line);
+      });
     }
     if (added > 0) setTimeout(() => location.reload(), 600);
   });

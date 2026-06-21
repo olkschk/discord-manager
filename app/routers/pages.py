@@ -1,12 +1,16 @@
 """HTML page renders (server-side templates)."""
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.database import discords, proxies as proxies_coll, topics
 from app.security import decrypt, require_login
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -51,7 +55,10 @@ async def dashboard(
     user: str = Depends(require_login),
 ) -> HTMLResponse:
     accounts: list[dict] = []
+    total_in_db = await discords().count_documents({"owner": user})
+    logger.info("dashboard: user=%r total_in_db=%d", user, total_in_db)
     async for acc in discords().find({"owner": user}).sort("_id", -1):
+        logger.debug("dashboard: acc _id=%s email=%s", acc["_id"], acc.get("email"))
         accounts.append(
             {
                 "id": str(acc["_id"]),

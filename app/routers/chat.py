@@ -85,18 +85,18 @@ async def duplicate(body: DuplicateBody, user: str = Depends(require_login)) -> 
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
-    results: list[dict] = []
-    for i, cid in enumerate(body.channel_ids):
-        # Typing simulation per channel, then send
-        msg = await _send_with_typing(token, cid, body.content, proxy_url=proxy_url)
-        ok = msg is not None
-        results.append({"channel_id": cid, "ok": ok})
-        if not ok:
-            logger.warning("duplicate: failed to send to channel %s — skipping", cid)
-        # Additional random pause between channels (skip after last)
-        if i < len(body.channel_ids) - 1:
-            await asyncio.sleep(random.uniform(3, 7))
-    return {"results": results}
+
+    async def _bg_send() -> None:
+        for i, cid in enumerate(body.channel_ids):
+            try:
+                await send_message(token, cid, body.content, proxy_url=proxy_url)
+            except Exception:  # noqa: BLE001
+                logger.warning("duplicate: failed channel %s", cid)
+            if i < len(body.channel_ids) - 1:
+                await asyncio.sleep(random.uniform(0.5, 1.5))
+
+    asyncio.create_task(_bg_send(), name="duplicate-send")
+    return {"ok": True, "queued": len(body.channel_ids)}
 
 
 # ── React (single) ────────────────────────────────────────────────────────────
