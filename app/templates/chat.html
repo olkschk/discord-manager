@@ -575,9 +575,11 @@ function connectTopicSSE(topicId) {
       }
     } catch {}
   };
+  let _sseRetryTimer = null;
   es.onerror = () => {
-    // On reconnect, fetch any messages missed during the disconnect window
-    setTimeout(refreshNewMessages, 1500);
+    // Debounce: SSE can fire onerror rapidly — only refresh once after settling
+    if (_sseRetryTimer) clearTimeout(_sseRetryTimer);
+    _sseRetryTimer = setTimeout(() => { _sseRetryTimer = null; refreshNewMessages(); }, 3000);
   };
   _topicSSE = es;
 }
