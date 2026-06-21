@@ -30,11 +30,11 @@ function bindAddForm(formId, resultId, url, label) {
       return;
     }
     const { added = 0, skipped = 0, errors = [] } = r.data;
-    asResult(
-      result,
-      added > 0 || errors.length === 0,
-      `${label}: added ${added}, skipped ${skipped}` + (errors.length ? ` — ${errors.length} error(s)` : "")
-    );
+    const msg = `${label}: added ${added}, skipped ${skipped}` + (errors.length ? ` — ${errors.length} error(s)` : "");
+    asResult(result, added > 0 || errors.length === 0, msg);
+    if (errors.length) {
+      result.innerHTML += "<br>" + errors.map(e => `<span style="color:var(--err);font-size:10px;">${e}</span>`).join("<br>");
+    }
     if (added > 0) setTimeout(() => location.reload(), 600);
   });
 }
