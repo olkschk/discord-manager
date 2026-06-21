@@ -49,6 +49,7 @@
           {% for a in accounts %}
           <label class="rowlist__row stage-acc-row" data-group="{{ a.group }}">
             <input type="checkbox" class="acc-check" data-section="stage" value="{{ a.id }}" />
+            {% if a.avatar_url %}<img src="{{ a.avatar_url }}" alt="" style="width:18px;height:18px;border-radius:50%;object-fit:cover;" />{% else %}<span style="display:inline-flex;width:18px;height:18px;border-radius:50%;background:var(--surface-raised);align-items:center;justify-content:center;font-size:8px;color:var(--text-disabled);">?</span>{% endif %}
             <span class="rowlist__primary">{{ a.email }}</span>
             <span class="rowlist__meta">{{ a.name or a.username }}</span>
             <span class="status {% if a.joined_voice %}ok{% else %}muted{% endif %}">
@@ -110,18 +111,21 @@
         </div>
         <article class="panel" style="gap:var(--sp-md);">
           <p class="panel__hint">Account must already be connected to the stage channel. Uses Guild / Channel ID from above.</p>
-          <label>
-            <span>Account</span>
-            <select id="speakAccountSelect">
-              <option value="">Select account…</option>
-              {% for a in accounts if a.joined_voice %}
-              <option value="{{ a.id }}">{{ a.name or a.username }} ({{ a.email }})</option>
-              {% else %}
-              <option value="" disabled>— no accounts in stage —</option>
-              {% endfor %}
-            </select>
-          </label>
+          <div class="rowlist" style="max-height:240px;overflow-y:auto;">
+            {% for a in accounts %}
+            <label class="rowlist__row speak-acc-row" data-group="{{ a.group }}">
+              <input type="checkbox" class="acc-check" data-section="speak" value="{{ a.id }}" {% if not a.joined_voice %}disabled{% endif %} />
+              {% if a.avatar_url %}<img src="{{ a.avatar_url }}" alt="" style="width:18px;height:18px;border-radius:50%;object-fit:cover;" />{% else %}<span style="display:inline-flex;width:18px;height:18px;border-radius:50%;background:var(--surface-raised);align-items:center;justify-content:center;font-size:8px;color:var(--text-disabled);">?</span>{% endif %}
+              <span class="rowlist__primary">{{ a.email }}</span>
+              <span class="rowlist__meta">{{ a.name or a.username }}</span>
+              <span class="status {% if a.joined_voice %}ok{% else %}muted{% endif %}">{{ "in stage" if a.joined_voice else "—" }}</span>
+            </label>
+            {% else %}
+            <p class="muted" style="padding:var(--sp-md)">No accounts yet.</p>
+            {% endfor %}
+          </div>
           <div style="display:flex; gap:var(--sp-sm); align-items:center;">
+            <button type="button" id="speakSelectAllBtn" class="small">Select all in stage</button>
             <output id="speakResult" class="result" style="flex:1; font-size:11px;"></output>
             <button type="button" id="withdrawSpeakBtn" class="small danger">Withdraw</button>
             <button type="button" id="requestSpeakBtn" class="primary small">🎤 Request</button>
@@ -311,24 +315,30 @@ document.getElementById("endStageBtn").addEventListener("click", async () => {
 // ── Request to speak ──────────────────────────────────────────────────
 async function sendSpeakRequest(request) {
   const out = document.getElementById("speakResult");
-  const account_id = document.getElementById("speakAccountSelect").value;
+  const ids = gather("speak");
   const guild_id = document.getElementById("stageGuildId").value.trim();
   const channel_id = document.getElementById("stageChannelId").value.trim();
-  if (!account_id) return setResult(out, false, "Select an account");
+  if (!ids.length) return setResult(out, false, "Select at least one account");
   if (!guild_id || !channel_id) return setResult(out, false, "Fill Guild ID and Channel ID");
-  setResult(out, true, request ? "Requesting…" : "Withdrawing…");
-  const r = await fetch("/api/stage/request-speak", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ account_id, guild_id, channel_id, request }),
-  });
-  const data = await r.json().catch(() => ({}));
-  if (r.ok && data.ok) setResult(out, true, request ? "🎤 Request sent" : "Withdrawn");
-  else setResult(out, false, data.body || data.error || `Error ${r.status}`);
+  setResult(out, true, (request ? "Requesting" : "Withdrawing") + ` for ${ids.length}…`);
+  let ok = 0, fail = 0;
+  for (const account_id of ids) {
+    const r = await fetch("/api/stage/request-speak", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ account_id, guild_id, channel_id, request }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.ok) ok++; else fail++;
+  }
+  setResult(out, ok > 0, `${ok}/${ids.length} ${request ? "requested" : "withdrawn"}`);
 }
 
 document.getElementById("requestSpeakBtn").addEventListener("click", () => sendSpeakRequest(true));
 document.getElementById("withdrawSpeakBtn").addEventListener("click", () => sendSpeakRequest(false));
+document.getElementById("speakSelectAllBtn")?.addEventListener("click", () => {
+  document.querySelectorAll('.acc-check[data-section="speak"]:not(:disabled)').forEach(c => c.checked = true);
+});
 
 // ── Group filter ─────────────────────────────────────────────────────
 document.querySelectorAll(".stage-group-btn").forEach(btn => {

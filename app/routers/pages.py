@@ -109,6 +109,7 @@ async def stage_page(
                 "username": acc.get("username") or acc["email"],
                 "name": acc.get("name") or acc.get("username") or acc["email"],
                 "group": acc.get("group", "Massovka1"),
+                "avatar_url": _avatar_url(acc),
                 "joined_voice": acc.get("joined_voice", False),
                 "voice_channel_id": acc.get("voice_channel_id"),
             }
