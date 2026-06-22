@@ -79,8 +79,9 @@ async def send(body: SendBody, user: str = Depends(require_login)) -> dict:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
 
-    # Drop oldest pending sends if queue is full
-    _pending_sends.discard(*(t for t in list(_pending_sends) if t.done()))
+    # Clean up finished tasks
+    for t in [t for t in _pending_sends if t.done()]:
+        _pending_sends.discard(t)
     if len(_pending_sends) >= _MAX_PENDING:
         return {"sent": False, "error": "too_many_pending"}
 
