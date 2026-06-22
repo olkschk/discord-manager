@@ -422,11 +422,17 @@ async def refresh_dms() -> dict:
 
 
 @router.get("/private/conversations")
-async def list_dm_conversations() -> list[dict]:
+async def list_dm_conversations(user: str = Depends(require_login)) -> list[dict]:
     """List DM conversations grouped by sender, with unread count and last message."""
+    from app.database import discords
+    # Only show DMs for accounts owned by this user
+    owned_emails = [
+        acc["email"] async for acc in discords().find({"owner": user}, {"email": 1})
+    ]
+    if not owned_emails:
+        return []
     pipeline = [
-        # Exclude outgoing replies — they're not separate conversations
-        {"$match": {"is_outgoing": {"$ne": True}}},
+        {"$match": {"is_outgoing": {"$ne": True}, "to": {"$in": owned_emails}}},
         {"$sort": {"timestamp": -1}},
         {"$group": {
             "_id": {"from": "$from", "to": "$to"},
@@ -453,10 +459,12 @@ async def list_dm_conversations() -> list[dict]:
 
 
 @router.get("/private/messages")
-async def get_dm_messages(sender: str, to: str) -> list[dict]:
+async def get_dm_messages(sender: str, to: str, user: str = Depends(require_login)) -> list[dict]:
     """Last 100 messages in a DM conversation — both incoming and outgoing."""
-    # Incoming: from sender, to account email
-    # Outgoing: replies we sent (is_outgoing=True, dm_peer=sender, to=account email)
+    from app.database import discords
+    owns = await discords().find_one({"owner": user, "email": to})
+    if not owns:
+        return []
     query = {"$or": [
         {"from": sender, "to": to},
         {"to": to, "dm_peer": sender, "is_outgoing": True},
