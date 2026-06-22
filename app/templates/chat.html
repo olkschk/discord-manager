@@ -1371,37 +1371,42 @@ document.getElementById("reactModalSubmit").addEventListener("click", async () =
   out.className = "result";
   out.textContent = `0 / ${total}…`;
 
-  let done = 0, ok = 0;
+  // Group jobs by emoji and send all accounts per emoji in one bulk request
+  const emojiGroups = new Map();
   for (const job of jobs) {
+    if (!emojiGroups.has(job.emoji)) emojiGroups.set(job.emoji, []);
+    emojiGroups.get(job.emoji).push(job);
+  }
+
+  let done = 0, ok = 0;
+  for (const [emoji, emojiJobs] of emojiGroups) {
     if (reactCancelled) {
       for (const j of jobs) { if (j.status === "pending") j.status = "cancelled"; }
       renderPendingQueue();
       break;
     }
+    const accIds = emojiJobs.map(j => j.accId);
     const resp = await fetch("/api/chat/react-bulk", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
-        account_ids: [job.accId],
+        account_ids: accIds,
         channel_id: currentTopic,
         message_id: reactTargetMessageId,
-        emoji: job.emoji,
-        delay_min: 0, delay_max: 0,
+        emoji,
+        delay_min, delay_max,
       }),
     });
     const data = await resp.json().catch(() => ({}));
-    const success = resp.ok && (data.results || []).some(x => x.ok);
-    job.status = success ? "ok" : "err";
-    if (success) ok++;
-    done++;
+    const resultMap = {};
+    for (const r of (data.results || [])) resultMap[r.account_id] = r.ok;
+    for (const job of emojiJobs) {
+      job.status = resultMap[job.accId] ? "ok" : "err";
+      if (resultMap[job.accId]) ok++;
+      done++;
+    }
     renderPendingQueue();
     out.textContent = `${done} / ${total}…`;
-
-    // Delay between jobs (skip after the last one)
-    if (done < total && !reactCancelled && delay_max > 0) {
-      const ms = (Math.random() * (delay_max - delay_min) + delay_min) * 1000;
-      await new Promise(res => setTimeout(res, ms));
-    }
   }
 
   submitBtn.disabled = false;
