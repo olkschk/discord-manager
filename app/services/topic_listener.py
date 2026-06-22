@@ -55,6 +55,8 @@ def subscribe(topic_id: str) -> asyncio.Queue:
 def unsubscribe(topic_id: str, q: asyncio.Queue) -> None:
     """Deregister an SSE listener when client disconnects."""
     _subscribers[topic_id].discard(q)
+    if not _subscribers[topic_id]:
+        del _subscribers[topic_id]
 
 
 def _build_identify_props() -> dict:

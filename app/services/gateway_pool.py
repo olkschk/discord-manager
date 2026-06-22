@@ -29,7 +29,15 @@ logger = logging.getLogger(__name__)
 _connections: dict[str, GatewayConnection] = {}
 _rotation_tasks: dict[str, asyncio.Task] = {}
 _supervisor_tasks: dict[str, asyncio.Task] = {}
-_lock = asyncio.Lock()
+_locks: dict[str, asyncio.Lock] = {}
+_global_lock = asyncio.Lock()
+
+
+def _get_lock(account_id: str) -> asyncio.Lock:
+    """Per-account lock so connecting one account doesn't block all others."""
+    if account_id not in _locks:
+        _locks[account_id] = asyncio.Lock()
+    return _locks[account_id]
 
 _SUPERVISOR_INTERVAL = 30  # seconds between liveness checks
 
@@ -71,8 +79,9 @@ async def _open_connection(account_id: str) -> GatewayConnection | None:
 
 
 async def get_or_create(account_id: str) -> GatewayConnection | None:
-    """Return the existing connection or open a new one."""
-    async with _lock:
+    """Return the existing connection or open a new one (per-account lock)."""
+    lock = _get_lock(account_id)
+    async with lock:
         existing = _connections.get(account_id)
         if existing is not None and existing.ws is not None and not existing.ws.closed:
             return existing
@@ -110,7 +119,7 @@ async def _supervisor_loop(account_id: str) -> None:
             # Double-check under the lock: if another coroutine already restored
             # the connection (e.g. get_or_create was called concurrently), close
             # our redundant connection rather than overwriting theirs.
-            async with _lock:
+            async with _get_lock(account_id):
                 current = _connections.get(account_id)
                 if current is not None and current.ws is not None and not current.ws.closed:
                     logger.info("supervisor: connection already restored for %s — discarding duplicate", account_id)
@@ -145,8 +154,9 @@ def _start_supervisor(account_id: str) -> None:
 async def close_one(account_id: str) -> None:
     stop_activity_rotation(account_id)
     _stop_supervisor(account_id)
-    async with _lock:
+    async with _get_lock(account_id):
         conn = _connections.pop(account_id, None)
+    _locks.pop(account_id, None)
     if conn is not None:
         await conn.close()
 
@@ -156,9 +166,10 @@ async def close_all() -> None:
         stop_activity_rotation(account_id)
     for account_id in list(_supervisor_tasks):
         _stop_supervisor(account_id)
-    async with _lock:
+    async with _global_lock:
         items = list(_connections.items())
         _connections.clear()
+        _locks.clear()
     for _, conn in items:
         try:
             await conn.close()

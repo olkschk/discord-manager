@@ -42,57 +42,45 @@ async def change_identity(
     body: IdentityBody,
     user: str = Depends(require_login),
 ) -> dict:
-    """Generate a fresh AI identity for each account and PATCH it to Discord."""
+    """Generate a fresh AI identity for each account and PATCH it to Discord (up to 5 concurrent)."""
+    import asyncio
+
+    sem = asyncio.Semaphore(5)
     results: list[dict] = []
-    for acc_id in body.account_ids:
-        resolved = await load_account_token_and_proxy(acc_id, owner=user)
-        if resolved is None:
-            results.append({"account_id": acc_id, "ok": False, "error": "unreadable"})
-            continue
-        acc, token, proxy_url = resolved
 
-        try:
-            password = decrypt(acc["password"])
-        except (ValueError, KeyError):
-            password = None
-
-        conn = await gateway_pool.get_or_create(acc_id)
-        if conn is None:
-            logger.warning("change_identity: could not open gateway for %s — trying anyway", acc_id)
-
-        try:
-            ident = await generate_identity()
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Identity gen failed for %s", acc_id)
-            results.append(
-                {"account_id": acc_id, "ok": False, "error": f"ai:{exc.__class__.__name__}"}
+    async def _process(acc_id: str) -> dict:
+        async with sem:
+            resolved = await load_account_token_and_proxy(acc_id, owner=user)
+            if resolved is None:
+                return {"account_id": acc_id, "ok": False, "error": "unreadable"}
+            acc, token, proxy_url = resolved
+            try:
+                password = decrypt(acc["password"])
+            except (ValueError, KeyError):
+                password = None
+            await gateway_pool.get_or_create(acc_id)
+            try:
+                ident = await generate_identity()
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Identity gen failed for %s", acc_id)
+                return {"account_id": acc_id, "ok": False, "error": f"ai:{exc.__class__.__name__}"}
+            out = await patch_profile(
+                token,
+                username=ident["username"],
+                global_name=ident["global_name"] or None,
+                bio=ident["bio"] or None,
+                password=password,
+                proxy_url=proxy_url,
             )
-            continue
-
-        out = await patch_profile(
-            token,
-            username=ident["username"],
-            global_name=ident["global_name"] or None,
-            bio=ident["bio"] or None,
-            password=password,
-            proxy_url=proxy_url,
-        )
-        if out is None:
-            results.append(
-                {"account_id": acc_id, "ok": False, "error": "discord_patch_failed", "identity": ident}
+            if out is None:
+                return {"account_id": acc_id, "ok": False, "error": "discord_patch_failed", "identity": ident}
+            await discords().update_one(
+                {"_id": ObjectId(acc_id)},
+                {"$set": {"username": ident["username"], "name": ident["global_name"], "bio": ident["bio"]}},
             )
-            continue
+            return {"account_id": acc_id, "ok": True, "identity": ident}
 
-        await discords().update_one(
-            {"_id": ObjectId(acc_id)},
-            {"$set": {
-                "username": ident["username"],
-                "name": ident["global_name"],
-                "bio": ident["bio"],
-            }},
-        )
-        results.append({"account_id": acc_id, "ok": True, "identity": ident})
-
+    results = list(await asyncio.gather(*(_process(a) for a in body.account_ids)))
     return {"results": results}
 
 

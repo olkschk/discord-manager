@@ -211,35 +211,49 @@ async def _dm_cycle() -> None:
                         continue
                     msgs = await resp.json()
 
+                # Filter out own messages
+                other_msgs = []
                 for m in msgs:
                     author = m.get("author") or {}
                     if my_user_id and author.get("id") == my_user_id:
                         continue
                     if not my_user_id and my_username and author.get("username") == my_username:
                         continue
+                    other_msgs.append(m)
 
+                if not other_msgs:
+                    continue
+
+                # Batch dedup: fetch known IDs in one query instead of N find_one calls
+                candidate_ids = [m["id"] for m in other_msgs if m.get("id")]
+                known_cursor = private_messages_coll().find(
+                    {"discord_message_id": {"$in": candidate_ids}, "to": acc["email"]},
+                    {"discord_message_id": 1},
+                )
+                known_ids = {d["discord_message_id"] async for d in known_cursor}
+
+                to_insert = []
+                for m in other_msgs:
                     msg_id = m.get("id")
-                    existing = await private_messages_coll().find_one(
-                        {"discord_message_id": msg_id, "to": acc["email"]}
-                    )
-                    if existing is not None:
+                    if not msg_id or msg_id in known_ids:
                         continue
-
+                    author = m.get("author") or {}
                     attachments = m.get("attachments") or []
                     image = attachments[0].get("url") if attachments else None
-                    await private_messages_coll().insert_one(
-                        {
-                            "text": m.get("content", ""),
-                            "image": image,
-                            "from": author.get("username") or "?",
-                            "from_id": author.get("id"),          # Discord user_id for replies
-                            "to": acc["email"],
-                            "dm_channel_id": cid,                 # channel to reply in
-                            "is_read": False,
-                            "discord_message_id": msg_id,
-                            "timestamp": _parse_iso(m.get("timestamp")),
-                        }
-                    )
+                    to_insert.append({
+                        "text": m.get("content", ""),
+                        "image": image,
+                        "from": author.get("username") or "?",
+                        "from_id": author.get("id"),
+                        "to": acc["email"],
+                        "dm_channel_id": cid,
+                        "is_read": False,
+                        "discord_message_id": msg_id,
+                        "timestamp": _parse_iso(m.get("timestamp")),
+                    })
+
+                if to_insert:
+                    await private_messages_coll().insert_many(to_insert)
         except (ClientError, TimeoutError) as exc:
             logger.warning("dm fetch error for %s: %s", acc.get("email"), exc)
 

@@ -130,43 +130,48 @@ async def assign_proxies(user: str = Depends(require_login)) -> dict:
 
 @router.post("/validate-all")
 async def validate_all(user: str = Depends(require_login)) -> dict:
-    """Validate every account owned by this user that has a proxy."""
-    valid, invalid = 0, 0
-    cursor = discords().find({"owner": user, "proxy_id": {"$ne": None}})
-    async for acc in cursor:
-        proxy = await proxies_coll().find_one({"_id": acc["proxy_id"]})
-        proxy_url: str | None = None
-        if proxy is not None:
+    """Validate every account owned by this user that has a proxy (up to 10 concurrent)."""
+    import asyncio
+
+    sem = asyncio.Semaphore(10)
+    results = {"valid": 0, "invalid": 0}
+
+    async def _validate_one(acc: dict) -> None:
+        async with sem:
+            proxy = await proxies_coll().find_one({"_id": acc["proxy_id"]})
+            proxy_url: str | None = None
+            if proxy is not None:
+                try:
+                    proxy_url = build_proxy_url(
+                        proxy["ip"], proxy["port"], proxy["login"], decrypt(proxy["password"])
+                    )
+                except ValueError:
+                    pass
             try:
-                proxy_url = build_proxy_url(
-                    proxy["ip"], proxy["port"], proxy["login"], decrypt(proxy["password"])
-                )
+                token = decrypt(acc["discord_token"])
             except ValueError:
-                logger.warning("Bad proxy ciphertext for proxy %s", proxy.get("_id"))
+                await discords().update_one({"_id": acc["_id"]}, {"$set": {"token_valid": False}})
+                results["invalid"] += 1
+                return
 
-        try:
-            token = decrypt(acc["discord_token"])
-        except ValueError:
-            await discords().update_one({"_id": acc["_id"]}, {"$set": {"token_valid": False}})
-            invalid += 1
-            continue
+            is_valid, data = await validate_token(token, proxy_url)
+            update: dict = {"token_valid": is_valid}
+            if is_valid and data:
+                update["username"] = data.get("username")
+                update["discord_user_id"] = data.get("id")
+                update["avatar"] = data.get("avatar")
+                if not acc.get("name"):
+                    update["name"] = data.get("global_name") or data.get("username")
+            await discords().update_one({"_id": acc["_id"]}, {"$set": update})
+            if is_valid:
+                results["valid"] += 1
+            else:
+                results["invalid"] += 1
 
-        is_valid, data = await validate_token(token, proxy_url)
-        update: dict = {"token_valid": is_valid}
-        if is_valid and data:
-            update["username"] = data.get("username")
-            update["discord_user_id"] = data.get("id")
-            update["avatar"] = data.get("avatar")
-            if not acc.get("name"):
-                update["name"] = data.get("global_name") or data.get("username")
-        await discords().update_one({"_id": acc["_id"]}, {"$set": update})
-        if is_valid:
-            valid += 1
-        else:
-            invalid += 1
-
-    logger.info("Validation done: valid=%d invalid=%d owner=%s", valid, invalid, user)
-    return {"valid": valid, "invalid": invalid}
+    accounts = await discords().find({"owner": user, "proxy_id": {"$ne": None}}).to_list(length=500)
+    await asyncio.gather(*(_validate_one(acc) for acc in accounts))
+    logger.info("Validation done: valid=%d invalid=%d owner=%s", results["valid"], results["invalid"], user)
+    return results
 
 
 @router.post("/{account_id}/validate")
@@ -262,6 +267,9 @@ async def delete_account(
         await proxies_coll().update_one(
             {"_id": acc["proxy_id"]}, {"$set": {"assigned": False}}
         )
+    from app.services import gateway_pool
+    await gateway_pool.close_one(account_id)
+
     email = acc.get("email", "")
     deleted_pms = await private_messages_coll().delete_many({"to": email})
     await discords().delete_one({"_id": ObjectId(account_id)})
