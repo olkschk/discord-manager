@@ -390,6 +390,15 @@
       <button type="button" class="link" id="utilsReactAccModalClose">Close ×</button>
     </header>
     <div class="modal__body" style="gap:var(--sp-md);">
+      <!-- Group filter -->
+      <div style="display:flex; gap:var(--sp-xs); flex-wrap:wrap; margin-bottom:var(--sp-xs);">
+        {% for grp in ["All", "Massovka1", "Massovka2", "Massovka3", "Chatter1", "Chatter2", "Chatter3", "Infl1", "Infl2", "Infl3"] %}
+        <button type="button" class="utils-react-group-btn{% if grp == 'All' %} primary{% endif %}" data-group="{{ grp }}"
+          style="font-family:var(--font-mono);font-size:8px;letter-spacing:.1em;text-transform:uppercase;padding:2px 5px;border-radius:3px;border:1px solid var(--border-visible);cursor:pointer;">
+          {{ grp }}
+        </button>
+        {% endfor %}
+      </div>
       <div style="display:flex; gap:var(--sp-sm); align-items:center; flex-wrap:wrap;">
         <button type="button" class="small" id="utilsReactAccSelAll">Select all</button>
         <button type="button" class="small" id="utilsReactAccSelClear">Clear</button>
@@ -400,7 +409,7 @@
       </div>
       <div style="display:grid; gap:1px; background:var(--border); border:1px solid var(--border); border-radius:4px; max-height:280px; overflow-y:auto;">
         {% for a in accounts if a.joined_server %}
-        <label class="utils-react-acc-row" style="display:flex; gap:var(--sp-sm); align-items:center; padding:6px 10px; background:var(--surface); cursor:pointer;">
+        <label class="utils-react-acc-row" data-group="{{ a.group }}" style="display:flex; gap:var(--sp-sm); align-items:center; padding:6px 10px; background:var(--surface); cursor:pointer;">
           <input type="checkbox" class="utils-react-acc-check" value="{{ a.id }}"
             data-username="{{ a.username }}"
             style="width:14px;height:14px;accent-color:var(--text-display);"
@@ -528,8 +537,25 @@ document.getElementById("utilsReactAccModal")?.addEventListener("click", (e) => 
     updateUtilsReactAccSummary();
   }
 });
+// Utils react group filter
+document.querySelectorAll(".utils-react-group-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".utils-react-group-btn").forEach(b => { b.classList.remove("primary"); b.style.background = "transparent"; b.style.color = "var(--text-secondary)"; });
+    btn.classList.add("primary"); btn.style.background = "var(--text-display)"; btn.style.color = "var(--black)";
+    const grp = btn.dataset.group;
+    document.querySelectorAll(".utils-react-acc-row").forEach(row => {
+      row.style.display = (grp === "All" || row.dataset.group === grp) ? "" : "none";
+    });
+  });
+});
+
 document.getElementById("utilsReactAccSelAll")?.addEventListener("click", () => {
-  document.querySelectorAll(".utils-react-acc-check:not(:disabled)").forEach(c => c.checked = true);
+  document.querySelectorAll(".utils-react-acc-row").forEach(row => {
+    if (row.style.display !== "none") {
+      const cb = row.querySelector(".utils-react-acc-check:not(:disabled)");
+      if (cb) cb.checked = true;
+    }
+  });
   updateUtilsReactAccModalCount();
 });
 document.getElementById("utilsReactAccSelClear")?.addEventListener("click", () => {
@@ -539,7 +565,8 @@ document.getElementById("utilsReactAccSelClear")?.addEventListener("click", () =
 document.getElementById("utilsReactAccQuickApply")?.addEventListener("click", () => {
   document.querySelectorAll(".utils-react-acc-check").forEach(c => c.checked = false);
   const n = parseInt(document.getElementById("utilsReactAccQuick").value) || 0;
-  [...document.querySelectorAll(".utils-react-acc-check:not(:disabled)")].slice(0, n).forEach(c => c.checked = true);
+  const visible = [...document.querySelectorAll(".utils-react-acc-row")].filter(r => r.style.display !== "none");
+  visible.flatMap(r => [...r.querySelectorAll(".utils-react-acc-check:not(:disabled)")]).slice(0, n).forEach(c => c.checked = true);
   updateUtilsReactAccModalCount();
 });
 document.querySelectorAll(".utils-react-acc-check").forEach(cb => {
