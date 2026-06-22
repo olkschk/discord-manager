@@ -20,6 +20,9 @@ from app.services.discord_api import add_reaction, get_or_create_dm_channel, sen
 
 MAX_FILE_BYTES = 8 * 1024 * 1024  # Discord non-Nitro limit
 
+# ── Background task registry (prevents GC from killing fire-and-forget tasks) ─
+_background_tasks: set[asyncio.Task] = set()
+
 # ── Send queue: limits concurrent sends to avoid event-loop saturation ───────
 _send_sem = asyncio.Semaphore(3)
 _pending_sends: set[asyncio.Task] = set()
@@ -130,7 +133,9 @@ async def duplicate(body: DuplicateBody, user: str = Depends(require_login)) -> 
             if i < len(body.channel_ids) - 1:
                 await asyncio.sleep(random.uniform(0.5, 1.5))
 
-    asyncio.create_task(_bg_send(), name="duplicate-send")
+    task = asyncio.create_task(_bg_send(), name="duplicate-send")
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
     return {"ok": True, "queued": len(body.channel_ids)}
 
 
@@ -181,7 +186,9 @@ async def react_bulk(body: BulkReactBody, user: str = Depends(require_login)) ->
 
         await asyncio.gather(*(_react_one(a, i) for i, a in enumerate(body.account_ids)))
 
-    asyncio.create_task(_bg(), name="react-bulk")
+    task = asyncio.create_task(_bg(), name="react-bulk")
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
     return {"ok": True, "queued": len(body.account_ids)}
 
 
