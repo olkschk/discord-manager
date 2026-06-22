@@ -372,6 +372,42 @@ async def list_topic_messages(topic_id: str) -> list[dict]:
     return list(reversed(out))
 
 
+# ── DM monitor account selection ──────────────────────────────────────────────
+@router.get("/private/monitored-accounts")
+async def list_dm_monitored(user: str = Depends(require_login)) -> list[dict]:
+    """Return all accounts with their dm_monitor flag."""
+    from app.database import discords
+    out: list[dict] = []
+    async for acc in discords().find({"owner": user, "token_valid": True}).sort("_id", -1):
+        out.append({
+            "id": str(acc["_id"]),
+            "email": acc["email"],
+            "name": acc.get("name") or acc.get("username") or acc["email"],
+            "group": acc.get("group", "Massovka1"),
+            "dm_monitor": acc.get("dm_monitor", False),
+        })
+    return out
+
+
+class DmMonitorBody(BaseModel):
+    account_ids: list[str]
+    enabled: bool
+
+
+@router.post("/private/set-monitor")
+async def set_dm_monitor(body: DmMonitorBody, user: str = Depends(require_login)) -> dict:
+    """Enable or disable DM monitoring for selected accounts."""
+    from app.database import discords
+    valid_ids = [ObjectId(aid) for aid in body.account_ids if ObjectId.is_valid(aid)]
+    if not valid_ids:
+        return {"ok": False, "error": "no valid ids"}
+    res = await discords().update_many(
+        {"_id": {"$in": valid_ids}, "owner": user},
+        {"$set": {"dm_monitor": body.enabled}},
+    )
+    return {"ok": True, "updated": res.modified_count}
+
+
 # ── Private messages (DMs) ────────────────────────────────────────────────────
 @router.post("/private/refresh")
 async def refresh_dms() -> dict:

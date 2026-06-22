@@ -171,7 +171,26 @@
       <aside style="border-right:1px solid var(--border); overflow-y:auto;">
         <div style="padding:var(--sp-md) var(--sp-lg); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
           <span class="section__title">Conversations</span>
-          <button type="button" id="refreshDMsBtn" class="small" title="Fetch new DMs from Discord now">↻</button>
+          <div style="display:flex;gap:var(--sp-xs);">
+            <button type="button" id="refreshDMsBtn" class="small" title="Fetch new DMs from Discord now">↻</button>
+            <button type="button" id="dmSettingsBtn" class="small" title="Select accounts for DM monitoring">⚙</button>
+          </div>
+        </div>
+        <!-- DM monitor account selector (hidden by default) -->
+        <div id="dmMonitorPanel" hidden style="padding:var(--sp-sm) var(--sp-md); border-bottom:1px solid var(--border); background:var(--surface);">
+          <div style="display:flex; gap:var(--sp-xs); flex-wrap:wrap; margin-bottom:var(--sp-xs);">
+            {% for grp in ["All", "Massovka1", "Massovka2", "Massovka3", "Chatter1", "Chatter2", "Chatter3", "Infl1", "Infl2", "Infl3"] %}
+            <button type="button" class="dm-group-btn{% if grp == 'All' %} primary{% endif %}" data-group="{{ grp }}"
+              style="font-family:var(--font-mono);font-size:8px;letter-spacing:.1em;text-transform:uppercase;padding:2px 5px;border-radius:3px;border:1px solid var(--border-visible);cursor:pointer;">
+              {{ grp }}
+            </button>
+            {% endfor %}
+          </div>
+          <div id="dmMonitorList" style="max-height:200px;overflow-y:auto;display:grid;gap:1px;font-size:10px;"></div>
+          <div style="display:flex;gap:var(--sp-xs);margin-top:var(--sp-xs);">
+            <button type="button" id="dmMonitorEnableBtn" class="small">Enable selected</button>
+            <button type="button" id="dmMonitorDisableBtn" class="small danger">Disable selected</button>
+          </div>
         </div>
         <div id="convList" style="padding:var(--sp-sm) 0;"></div>
       </aside>
@@ -936,6 +955,53 @@ document.getElementById("refreshDMsBtn")?.addEventListener("click", async () => 
   await updateDMBadge();
   btn.disabled = false; btn.textContent = "↻";
 });
+
+// ── DM monitor account selector ─────────────────────────────────────────────
+document.getElementById("dmSettingsBtn")?.addEventListener("click", () => {
+  const panel = document.getElementById("dmMonitorPanel");
+  if (panel.hidden) { panel.hidden = false; loadDmMonitorAccounts(); }
+  else panel.hidden = true;
+});
+
+async function loadDmMonitorAccounts() {
+  const r = await fetch("/api/chat/private/monitored-accounts");
+  const data = await r.json();
+  const list = document.getElementById("dmMonitorList");
+  list.innerHTML = "";
+  data.forEach(a => {
+    const row = document.createElement("label");
+    row.className = "dm-monitor-row";
+    row.dataset.group = a.group;
+    row.style.cssText = "display:flex;align-items:center;gap:5px;padding:3px 4px;cursor:pointer;";
+    row.innerHTML = `<input type="checkbox" class="dm-mon-check" value="${a.id}" ${a.dm_monitor ? "checked" : ""} style="width:12px;height:12px;" />`
+      + `<span style="color:var(--text-secondary);font-family:var(--font-mono);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.name}</span>`
+      + `<span style="color:var(--text-disabled);font-size:9px;margin-left:auto;">${a.dm_monitor ? "ON" : ""}</span>`;
+    list.appendChild(row);
+  });
+}
+
+document.querySelectorAll(".dm-group-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".dm-group-btn").forEach(b => { b.classList.remove("primary"); b.style.background = "transparent"; b.style.color = "var(--text-secondary)"; });
+    btn.classList.add("primary"); btn.style.background = "var(--text-display)"; btn.style.color = "var(--black)";
+    const grp = btn.dataset.group;
+    document.querySelectorAll(".dm-monitor-row").forEach(row => {
+      row.style.display = (grp === "All" || row.dataset.group === grp) ? "" : "none";
+    });
+  });
+});
+
+async function setDmMonitor(enabled) {
+  const ids = [...document.querySelectorAll(".dm-mon-check:checked")].map(c => c.value);
+  if (!ids.length) return;
+  await fetch("/api/chat/private/set-monitor", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ account_ids: ids, enabled }),
+  });
+  loadDmMonitorAccounts();
+}
+document.getElementById("dmMonitorEnableBtn")?.addEventListener("click", () => setDmMonitor(true));
+document.getElementById("dmMonitorDisableBtn")?.addEventListener("click", () => setDmMonitor(false));
 
 // Poll Discord API every 30s to pick up new DMs without waiting for 60s monitor cycle
 let _dmApiPollCounter = 0;

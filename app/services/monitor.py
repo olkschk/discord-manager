@@ -179,7 +179,7 @@ async def _dm_cycle() -> None:
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     base = settings.discord_api_base
 
-    async for acc in discords().find({"token_valid": True}):
+    async for acc in discords().find({"token_valid": True, "dm_monitor": True}):
         try:
             token = decrypt(acc["discord_token"])
         except ValueError:
