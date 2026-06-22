@@ -522,6 +522,7 @@ async function loadTopicMessages() {
   renderMessages(data);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   document.getElementById("messageCount").textContent = `${data.length} stored`;
+  _lastRenderTime = Date.now();
 }
 
 // Build a single message article element
@@ -565,9 +566,15 @@ function appendMessage(m) {
   document.getElementById("messageCount").textContent = `${count} stored`;
 }
 
-// Full refresh on SSE reconnect — re-render from server to stay in sync
+// Refresh on SSE reconnect — only if chat isn't busy (react modal etc.)
+let _lastRenderTime = 0;
 async function refreshNewMessages() {
   if (!currentTopic) return;
+  // Don't re-render if react modal is open (breaks the flow)
+  const reactModal = document.getElementById("reactModal");
+  if (reactModal && !reactModal.hidden) return;
+  // Don't re-render if we just rendered less than 5s ago
+  if (Date.now() - _lastRenderTime < 5000) return;
   try {
     await loadTopicMessages();
   } catch {}
