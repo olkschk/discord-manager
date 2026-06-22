@@ -33,8 +33,8 @@ def _get_session() -> aiohttp.ClientSession:
         _shared_session = aiohttp.ClientSession(
             timeout=ClientTimeout(total=20),
             connector=aiohttp.TCPConnector(
-                limit=30,
-                limit_per_host=10,
+                limit=200,
+                limit_per_host=0,
                 ttl_dns_cache=300,
                 use_dns_cache=True,
             ),
