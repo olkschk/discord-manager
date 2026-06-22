@@ -164,19 +164,17 @@ class BulkReactBody(BaseModel):
 
 @router.post("/react-bulk")
 async def react_bulk(body: BulkReactBody, user: str = Depends(require_login)) -> dict:
-    """Add the same reaction from N accounts concurrently (semaphore=5)."""
-    sem = asyncio.Semaphore(5)
+    """Add the same reaction from N accounts — all in parallel (each has own proxy)."""
 
     async def _react_one(acc_id: str, idx: int) -> dict:
-        async with sem:
-            if idx > 0 and body.delay_max > 0:
-                await asyncio.sleep(random.uniform(body.delay_min, body.delay_max))
-            resolved = await load_account_token_and_proxy(acc_id, owner=user)
-            if resolved is None:
-                return {"account_id": acc_id, "ok": False, "error": "unreadable"}
-            _, token, proxy_url = resolved
-            ok = await add_reaction(token, body.channel_id, body.message_id, body.emoji, proxy_url=proxy_url)
-            return {"account_id": acc_id, "ok": ok}
+        if idx > 0 and body.delay_max > 0:
+            await asyncio.sleep(random.uniform(body.delay_min, body.delay_max))
+        resolved = await load_account_token_and_proxy(acc_id, owner=user)
+        if resolved is None:
+            return {"account_id": acc_id, "ok": False, "error": "unreadable"}
+        _, token, proxy_url = resolved
+        ok = await add_reaction(token, body.channel_id, body.message_id, body.emoji, proxy_url=proxy_url)
+        return {"account_id": acc_id, "ok": ok}
 
     results = list(await asyncio.gather(*(_react_one(a, i) for i, a in enumerate(body.account_ids))))
     return {"results": results}
