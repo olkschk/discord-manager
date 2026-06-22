@@ -420,13 +420,17 @@ document.getElementById("cancelSaveChannel")?.addEventListener("click", () => {
 });
 document.getElementById("saveChannelForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const channel_id = document.getElementById("topicInput").value.trim();
+  const channel_id = currentTopic || document.getElementById("topicInput").value.trim();
   const label = document.getElementById("saveChannelLabel").value.trim();
   if (!channel_id) { alert("Open a channel first"); return; }
-  await fetch("/api/chat/channels", {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ channel_id, label }),
-  });
+  if (!label) return;
+  try {
+    const r = await fetch("/api/chat/channels", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ channel_id, label }),
+    });
+    if (!r.ok) { const d = await r.json().catch(()=>({})); alert(d.detail || "Save failed"); return; }
+  } catch (err) { alert("Network error"); return; }
   document.getElementById("saveChannelForm").hidden = true;
   document.getElementById("saveChannelLabel").value = "";
   loadSavedChannels();
@@ -718,20 +722,25 @@ async function loadTemplates() {
   }));
 }
 document.getElementById("newTemplateBtn").addEventListener("click", () => {
-  document.getElementById("newTemplateForm").hidden=false;
+  const f = document.getElementById("newTemplateForm");
+  f.hidden = false;
+  f.style.display = "grid";
   document.getElementById("newTemplateText").focus();
 });
 document.getElementById("cancelTemplateBtn").addEventListener("click", () => {
-  document.getElementById("newTemplateForm").hidden=true;
-  document.getElementById("newTemplateText").value="";
+  const f = document.getElementById("newTemplateForm");
+  f.hidden = true;
+  f.style.display = "none";
+  document.getElementById("newTemplateText").value = "";
 });
 document.getElementById("newTemplateForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = document.getElementById("newTemplateText").value.trim();
   if (!text) return;
   await fetch("/api/templates", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text}) });
-  document.getElementById("newTemplateText").value="";
-  document.getElementById("newTemplateForm").hidden=true;
+  document.getElementById("newTemplateText").value = "";
+  const tf = document.getElementById("newTemplateForm");
+  tf.hidden = true; tf.style.display = "none";
   loadTemplates();
 });
 loadTemplates();
