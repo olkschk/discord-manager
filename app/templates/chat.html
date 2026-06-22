@@ -727,7 +727,7 @@ document.getElementById("sendForm").addEventListener("submit", async (e) => {
       timestamp: new Date().toISOString(),
     });
     document.getElementById("sendText").value=""; fileInput.value=""; fileLabel.textContent="Attach file";
-  } else { out.className="result err"; out.textContent = d.error || "Failed"; }
+  } else { out.className="result err"; out.textContent = d.error || d.detail || `Failed (${resp.status}: ${JSON.stringify(d)})`; }
 });
 
 // ── Templates ─────────────────────────────────────────────────────────────────
