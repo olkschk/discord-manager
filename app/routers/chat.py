@@ -96,14 +96,15 @@ async def send(body: SendBody, user: str = Depends(require_login)) -> dict:
     if len(_pending_sends) >= _MAX_PENDING:
         return {"sent": False, "error": "too_many_pending"}
 
+    ch = body.channel_id
+    content = body.content
+    reply = body.reply_to
+
     async def _bg() -> None:
         try:
-            await _send_with_typing(
-                token, body.channel_id, body.content,
-                reply_to=body.reply_to, proxy_url=proxy_url,
-            )
+            await _send_with_typing(token, ch, content, reply_to=reply, proxy_url=proxy_url)
         except Exception:  # noqa: BLE001
-            logger.warning("send bg failed channel=%s", body.channel_id)
+            logger.warning("send bg failed channel=%s", ch)
 
     task = asyncio.create_task(_bg(), name="chat-send")
     _pending_sends.add(task)
@@ -124,13 +125,16 @@ async def duplicate(body: DuplicateBody, user: str = Depends(require_login)) -> 
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
 
+    channels = list(body.channel_ids)
+    content = body.content
+
     async def _bg_send() -> None:
-        for i, cid in enumerate(body.channel_ids):
+        for i, cid in enumerate(channels):
             try:
-                await send_message(token, cid, body.content, proxy_url=proxy_url)
+                await send_message(token, cid, content, proxy_url=proxy_url)
             except Exception:  # noqa: BLE001
                 logger.warning("duplicate: failed channel %s", cid)
-            if i < len(body.channel_ids) - 1:
+            if i < len(channels) - 1:
                 await asyncio.sleep(random.uniform(0.5, 1.5))
 
     task = asyncio.create_task(_bg_send(), name="duplicate-send")
@@ -170,26 +174,42 @@ class BulkReactBody(BaseModel):
 @router.post("/react-bulk")
 async def react_bulk(body: BulkReactBody, user: str = Depends(require_login)) -> dict:
     """Add the same reaction from N accounts — fire-and-forget, survives page refresh."""
+    # Pre-resolve all accounts NOW (while request is alive) so the bg task
+    # doesn't depend on any request-scoped objects.
+    acc_data: list[tuple[str, str, str | None]] = []
+    for acc_id in body.account_ids:
+        resolved = await load_account_token_and_proxy(acc_id, owner=user)
+        if resolved is not None:
+            _, token, proxy_url = resolved
+            acc_data.append((acc_id, token, proxy_url))
+
+    if not acc_data:
+        return {"ok": False, "error": "no valid accounts"}
+
+    # Snapshot all values — no closures over request objects
+    channel_id = body.channel_id
+    message_id = body.message_id
+    emoji = body.emoji
+    d_min = body.delay_min
+    d_max = body.delay_max
 
     async def _bg() -> None:
-        async def _react_one(acc_id: str, idx: int) -> None:
+        async def _react_one(acc_id: str, token: str, proxy_url: str | None, idx: int) -> None:
             try:
-                if idx > 0 and body.delay_max > 0:
-                    await asyncio.sleep(random.uniform(body.delay_min, body.delay_max))
-                resolved = await load_account_token_and_proxy(acc_id, owner=user)
-                if resolved is None:
-                    return
-                _, token, proxy_url = resolved
-                await add_reaction(token, body.channel_id, body.message_id, body.emoji, proxy_url=proxy_url)
+                if idx > 0 and d_max > 0:
+                    await asyncio.sleep(random.uniform(d_min, d_max))
+                await add_reaction(token, channel_id, message_id, emoji, proxy_url=proxy_url)
             except Exception:  # noqa: BLE001
-                logger.warning("react failed acc=%s emoji=%s", acc_id, body.emoji)
+                logger.warning("react failed acc=%s emoji=%s", acc_id, emoji)
 
-        await asyncio.gather(*(_react_one(a, i) for i, a in enumerate(body.account_ids)))
+        await asyncio.gather(*(
+            _react_one(aid, tok, px, i) for i, (aid, tok, px) in enumerate(acc_data)
+        ))
 
     task = asyncio.create_task(_bg(), name="react-bulk")
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
-    return {"ok": True, "queued": len(body.account_ids)}
+    return {"ok": True, "queued": len(acc_data)}
 
 
 # ── Send with file ────────────────────────────────────────────────────────────
