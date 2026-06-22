@@ -24,7 +24,6 @@ import logging
 from urllib.parse import quote_plus, urlparse
 
 import aiohttp
-from app.services.discord_api import _get_session
 from aiohttp import ClientError, ClientTimeout
 
 from app.config import get_settings
@@ -137,6 +136,7 @@ async def _solve_anticaptcha_style(
     )
 
     timeout = ClientTimeout(total=settings.captcha_timeout)
+    from app.services.discord_api import _get_session
     s = _get_session()
     async with s.post(f"{base_url}/createTask", json=create_payload) as r:
         data = await r.json()
@@ -198,6 +198,7 @@ async def _solve_twocaptcha(
         sitekey[:12], bool(rqdata),
     )
 
+    from app.services.discord_api import _get_session
     s = _get_session()
     async with s.get(f"{base}/in.php?" + "&".join(parts)) as r:
         data = await r.json()
