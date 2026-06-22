@@ -40,8 +40,16 @@ async def _send_with_typing(
     re-trigger typing every 7 s to keep the pencil visible.
     """
     async with _send_sem:
-        # ~0.06 s per char ≈ 50 WPM, clamped to [1, 15] s
-        base = max(1.0, min(15.0, len(content) * 0.06))
+        # 15 chars ~2s, 50 chars ~5s, 150 chars ~10s, 300+ chars ~20s+
+        n = len(content)
+        if n <= 15:
+            base = 2.0
+        elif n <= 50:
+            base = 2.0 + (n - 15) * (3.0 / 35)
+        elif n <= 150:
+            base = 5.0 + (n - 50) * (5.0 / 100)
+        else:
+            base = 10.0 + (n - 150) * (10.0 / 150)
         delay = base * random.uniform(0.85, 1.15)
 
         await trigger_typing(token, channel_id, proxy_url=proxy_url)
