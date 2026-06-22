@@ -1378,13 +1378,8 @@ document.getElementById("reactModalSubmit").addEventListener("click", async () =
     emojiGroups.get(job.emoji).push(job);
   }
 
-  let done = 0, ok = 0;
+  let queued = 0;
   for (const [emoji, emojiJobs] of emojiGroups) {
-    if (reactCancelled) {
-      for (const j of jobs) { if (j.status === "pending") j.status = "cancelled"; }
-      renderPendingQueue();
-      break;
-    }
     const accIds = emojiJobs.map(j => j.accId);
     const resp = await fetch("/api/chat/react-bulk", {
       method: "POST",
@@ -1398,22 +1393,18 @@ document.getElementById("reactModalSubmit").addEventListener("click", async () =
       }),
     });
     const data = await resp.json().catch(() => ({}));
-    const resultMap = {};
-    for (const r of (data.results || [])) resultMap[r.account_id] = r.ok;
-    for (const job of emojiJobs) {
-      job.status = resultMap[job.accId] ? "ok" : "err";
-      if (resultMap[job.accId]) ok++;
-      done++;
+    if (resp.ok && data.ok) {
+      queued += data.queued || accIds.length;
+      for (const job of emojiJobs) job.status = "ok";
+    } else {
+      for (const job of emojiJobs) job.status = "err";
     }
     renderPendingQueue();
-    out.textContent = `${done} / ${total}…`;
   }
 
   submitBtn.disabled = false;
-  out.className = ok > 0 ? "result ok" : "result err";
-  out.textContent = reactCancelled
-    ? `Cancelled · ${ok}/${done} reacted`
-    : `${ok}/${total} reacted · ${[...reactEmojiCounts.keys()].join("")}`;
+  out.className = queued > 0 ? "result ok" : "result err";
+  out.textContent = `${queued} reactions queued (running in background)`;
 });
 </script>
 {% endblock %}

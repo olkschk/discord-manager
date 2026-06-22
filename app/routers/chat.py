@@ -164,20 +164,25 @@ class BulkReactBody(BaseModel):
 
 @router.post("/react-bulk")
 async def react_bulk(body: BulkReactBody, user: str = Depends(require_login)) -> dict:
-    """Add the same reaction from N accounts — all in parallel (each has own proxy)."""
+    """Add the same reaction from N accounts — fire-and-forget, survives page refresh."""
 
-    async def _react_one(acc_id: str, idx: int) -> dict:
-        if idx > 0 and body.delay_max > 0:
-            await asyncio.sleep(random.uniform(body.delay_min, body.delay_max))
-        resolved = await load_account_token_and_proxy(acc_id, owner=user)
-        if resolved is None:
-            return {"account_id": acc_id, "ok": False, "error": "unreadable"}
-        _, token, proxy_url = resolved
-        ok = await add_reaction(token, body.channel_id, body.message_id, body.emoji, proxy_url=proxy_url)
-        return {"account_id": acc_id, "ok": ok}
+    async def _bg() -> None:
+        async def _react_one(acc_id: str, idx: int) -> None:
+            try:
+                if idx > 0 and body.delay_max > 0:
+                    await asyncio.sleep(random.uniform(body.delay_min, body.delay_max))
+                resolved = await load_account_token_and_proxy(acc_id, owner=user)
+                if resolved is None:
+                    return
+                _, token, proxy_url = resolved
+                await add_reaction(token, body.channel_id, body.message_id, body.emoji, proxy_url=proxy_url)
+            except Exception:  # noqa: BLE001
+                logger.warning("react failed acc=%s emoji=%s", acc_id, body.emoji)
 
-    results = list(await asyncio.gather(*(_react_one(a, i) for i, a in enumerate(body.account_ids))))
-    return {"results": results}
+        await asyncio.gather(*(_react_one(a, i) for i, a in enumerate(body.account_ids)))
+
+    asyncio.create_task(_bg(), name="react-bulk")
+    return {"ok": True, "queued": len(body.account_ids)}
 
 
 # ── Send with file ────────────────────────────────────────────────────────────
