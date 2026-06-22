@@ -26,7 +26,7 @@ from app.database import (
     topics,
 )
 from app.security import decrypt
-from app.services.discord_api import _headers, build_proxy_url
+from app.services.discord_api import _headers, build_proxy_url, _get_session
 from app.services import topic_listener as _topic_listener
 
 logger = logging.getLogger(__name__)
@@ -81,84 +81,84 @@ async def _topic_cycle() -> None:
     if not topic_list:
         return
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        for tid in topic_list:
-            url = f"{base}/channels/{tid}/messages?limit=100"
-            try:
-                async with session.get(url, headers=headers, proxy=proxy_url) as resp:
-                    if resp.status != 200:
-                        logger.info("topic %s fetch status=%s", tid, resp.status)
-                        continue
-                    msgs: list[dict[str, Any]] = await resp.json()
-            except (ClientError, TimeoutError) as exc:
-                logger.warning("topic %s fetch error: %s", tid, exc)
-                continue
-
-            # Upsert each message (don't delete — Gateway listener may have saved newer ones)
-            for m in msgs[:100]:
-                msg_id = m.get("id")
-                if not msg_id:
+    session = _get_session()
+    for tid in topic_list:
+        url = f"{base}/channels/{tid}/messages?limit=100"
+        try:
+            async with session.get(url, headers=headers, proxy=proxy_url) as resp:
+                if resp.status != 200:
+                    logger.info("topic %s fetch status=%s", tid, resp.status)
                     continue
-                attachments = m.get("attachments") or []
-                image = attachments[0].get("url") if attachments else None
-                author = m.get("author") or {}
-                author_id = author.get("id", "")
-                avatar = author.get("avatar")
-                avatar_url = (
-                    f"https://cdn.discordapp.com/avatars/{author_id}/{avatar}.png?size=64"
-                    if avatar
-                    else f"https://cdn.discordapp.com/embed/avatars/{int(author_id or 0) % 5}.png"
-                )
-                ref = m.get("referenced_message")
-                reply_to_author = reply_to_content = None
-                if ref:
-                    ra = ref.get("author") or {}
-                    reply_to_author = ra.get("global_name") or ra.get("username")
-                    reply_to_content = (ref.get("content") or "📎 Attachment" if ref.get("attachments") else ref.get("content") or "")[:100]
+                msgs: list[dict[str, Any]] = await resp.json()
+        except (ClientError, TimeoutError) as exc:
+            logger.warning("topic %s fetch error: %s", tid, exc)
+            continue
 
-                doc = {
-                    "discord_message_id": msg_id,
-                    "mid": int(msg_id),
-                    "text": m.get("content", ""),
-                    "image": image,
-                    "from": author.get("global_name") or author.get("username") or "?",
-                    "author_id": author_id,
-                    "avatar_url": avatar_url,
-                    "reply_to_author": reply_to_author,
-                    "reply_to_content": reply_to_content,
-                    "topic": tid,
-                    "timestamp": _parse_iso(m.get("timestamp")),
+        # Upsert each message (don't delete — Gateway listener may have saved newer ones)
+        for m in msgs[:100]:
+            msg_id = m.get("id")
+            if not msg_id:
+                continue
+            attachments = m.get("attachments") or []
+            image = attachments[0].get("url") if attachments else None
+            author = m.get("author") or {}
+            author_id = author.get("id", "")
+            avatar = author.get("avatar")
+            avatar_url = (
+                f"https://cdn.discordapp.com/avatars/{author_id}/{avatar}.png?size=64"
+                if avatar
+                else f"https://cdn.discordapp.com/embed/avatars/{int(author_id or 0) % 5}.png"
+            )
+            ref = m.get("referenced_message")
+            reply_to_author = reply_to_content = None
+            if ref:
+                ra = ref.get("author") or {}
+                reply_to_author = ra.get("global_name") or ra.get("username")
+                reply_to_content = (ref.get("content") or "📎 Attachment" if ref.get("attachments") else ref.get("content") or "")[:100]
+
+            doc = {
+                "discord_message_id": msg_id,
+                "mid": int(msg_id),
+                "text": m.get("content", ""),
+                "image": image,
+                "from": author.get("global_name") or author.get("username") or "?",
+                "author_id": author_id,
+                "avatar_url": avatar_url,
+                "reply_to_author": reply_to_author,
+                "reply_to_content": reply_to_content,
+                "topic": tid,
+                "timestamp": _parse_iso(m.get("timestamp")),
+            }
+            result = await messages_coll().update_one(
+                {"discord_message_id": msg_id, "topic": tid},
+                {"$set": doc},
+                upsert=True,
+            )
+            # Push to SSE clients if this is a brand-new message (missed by gateway)
+            if result.upserted_id is not None and _topic_listener._subscribers.get(tid):
+                sse_payload = {
+                    "discord_message_id": doc["discord_message_id"],
+                    "text": doc["text"],
+                    "image": doc["image"],
+                    "from": doc["from"],
+                    "avatar_url": doc["avatar_url"],
+                    "reply_to_author": doc["reply_to_author"],
+                    "reply_to_content": doc["reply_to_content"],
+                    "timestamp": doc["timestamp"].isoformat() if doc.get("timestamp") else None,
                 }
-                result = await messages_coll().update_one(
-                    {"discord_message_id": msg_id, "topic": tid},
-                    {"$set": doc},
-                    upsert=True,
-                )
-                # Push to SSE clients if this is a brand-new message (missed by gateway)
-                if result.upserted_id is not None and _topic_listener._subscribers.get(tid):
-                    sse_payload = {
-                        "discord_message_id": doc["discord_message_id"],
-                        "text": doc["text"],
-                        "image": doc["image"],
-                        "from": doc["from"],
-                        "avatar_url": doc["avatar_url"],
-                        "reply_to_author": doc["reply_to_author"],
-                        "reply_to_content": doc["reply_to_content"],
-                        "timestamp": doc["timestamp"].isoformat() if doc.get("timestamp") else None,
-                    }
-                    for q in list(_topic_listener._subscribers[tid]):
-                        await q.put(sse_payload)
+                for q in list(_topic_listener._subscribers[tid]):
+                    await q.put(sse_payload)
 
-            # Trim to 100 newest by snowflake
-            count = await messages_coll().count_documents({"topic": tid})
-            if count > 100:
-                oldest = [d["_id"] async for d in messages_coll().find(
-                    {"topic": tid}, {"_id": 1}
-                ).sort("mid", 1).limit(count - 100)]
-                if oldest:
-                    await messages_coll().delete_many({"_id": {"$in": oldest}})
+        # Trim to 100 newest by snowflake
+        count = await messages_coll().count_documents({"topic": tid})
+        if count > 100:
+            oldest = [d["_id"] async for d in messages_coll().find(
+                {"topic": tid}, {"_id": 1}
+            ).sort("mid", 1).limit(count - 100)]
+            if oldest:
+                await messages_coll().delete_many({"_id": {"$in": oldest}})
 
-            logger.info("topic monitor REST: synced msgs for topic=%s (total=%d)", tid, min(count, 100))
+        logger.info("topic monitor REST: synced msgs for topic=%s (total=%d)", tid, min(count, 100))
 
 
 async def _topic_loop() -> None:
@@ -190,56 +190,56 @@ async def _dm_cycle() -> None:
         my_user_id = acc.get("discord_user_id")
 
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                channels_url = f"{base}/users/@me/channels"
-                async with session.get(channels_url, headers=headers, proxy=proxy_url) as resp:
+            session = _get_session()
+            channels_url = f"{base}/users/@me/channels"
+            async with session.get(channels_url, headers=headers, proxy=proxy_url) as resp:
+                if resp.status != 200:
+                    logger.info(
+                        "dm channels list status=%s for %s", resp.status, acc.get("email")
+                    )
+                    continue
+                channels = await resp.json()
+
+            # Type 1 = 1:1 DM, type 3 = group DM. Spec is private DMs only.
+            for ch in channels:
+                if ch.get("type") != 1:
+                    continue
+                cid = ch["id"]
+                msg_url = f"{base}/channels/{cid}/messages?limit=50"
+                async with session.get(msg_url, headers=headers, proxy=proxy_url) as resp:
                     if resp.status != 200:
-                        logger.info(
-                            "dm channels list status=%s for %s", resp.status, acc.get("email")
-                        )
                         continue
-                    channels = await resp.json()
+                    msgs = await resp.json()
 
-                # Type 1 = 1:1 DM, type 3 = group DM. Spec is private DMs only.
-                for ch in channels:
-                    if ch.get("type") != 1:
+                for m in msgs:
+                    author = m.get("author") or {}
+                    if my_user_id and author.get("id") == my_user_id:
                         continue
-                    cid = ch["id"]
-                    msg_url = f"{base}/channels/{cid}/messages?limit=50"
-                    async with session.get(msg_url, headers=headers, proxy=proxy_url) as resp:
-                        if resp.status != 200:
-                            continue
-                        msgs = await resp.json()
+                    if not my_user_id and my_username and author.get("username") == my_username:
+                        continue
 
-                    for m in msgs:
-                        author = m.get("author") or {}
-                        if my_user_id and author.get("id") == my_user_id:
-                            continue
-                        if not my_user_id and my_username and author.get("username") == my_username:
-                            continue
+                    msg_id = m.get("id")
+                    existing = await private_messages_coll().find_one(
+                        {"discord_message_id": msg_id, "to": acc["email"]}
+                    )
+                    if existing is not None:
+                        continue
 
-                        msg_id = m.get("id")
-                        existing = await private_messages_coll().find_one(
-                            {"discord_message_id": msg_id, "to": acc["email"]}
-                        )
-                        if existing is not None:
-                            continue
-
-                        attachments = m.get("attachments") or []
-                        image = attachments[0].get("url") if attachments else None
-                        await private_messages_coll().insert_one(
-                            {
-                                "text": m.get("content", ""),
-                                "image": image,
-                                "from": author.get("username") or "?",
-                                "from_id": author.get("id"),          # Discord user_id for replies
-                                "to": acc["email"],
-                                "dm_channel_id": cid,                 # channel to reply in
-                                "is_read": False,
-                                "discord_message_id": msg_id,
-                                "timestamp": _parse_iso(m.get("timestamp")),
-                            }
-                        )
+                    attachments = m.get("attachments") or []
+                    image = attachments[0].get("url") if attachments else None
+                    await private_messages_coll().insert_one(
+                        {
+                            "text": m.get("content", ""),
+                            "image": image,
+                            "from": author.get("username") or "?",
+                            "from_id": author.get("id"),          # Discord user_id for replies
+                            "to": acc["email"],
+                            "dm_channel_id": cid,                 # channel to reply in
+                            "is_read": False,
+                            "discord_message_id": msg_id,
+                            "timestamp": _parse_iso(m.get("timestamp")),
+                        }
+                    )
         except (ClientError, TimeoutError) as exc:
             logger.warning("dm fetch error for %s: %s", acc.get("email"), exc)
 

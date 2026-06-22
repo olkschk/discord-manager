@@ -55,10 +55,7 @@ async def dashboard(
     user: str = Depends(require_login),
 ) -> HTMLResponse:
     accounts: list[dict] = []
-    total_in_db = await discords().count_documents({"owner": user})
-    logger.info("dashboard: user=%r total_in_db=%d", user, total_in_db)
     async for acc in discords().find({"owner": user}).sort("_id", -1):
-        logger.debug("dashboard: acc _id=%s email=%s", acc["_id"], acc.get("email"))
         accounts.append(
             {
                 "id": str(acc["_id"]),
@@ -73,14 +70,14 @@ async def dashboard(
                 "has_2fa": acc.get("two_fa_secret") is not None,
                 "is_donor": acc.get("is_donor", False),
                 "group": acc.get("group", "Massovka1"),
-                "password": _safe_decrypt(acc.get("password")),
-                "discord_token": _safe_decrypt(acc.get("discord_token")),
+                "has_password": bool(acc.get("password")),
+                "has_token": bool(acc.get("discord_token")),
                 "status": acc.get("status", "online"),
                 "avatar_url": _avatar_url(acc),
             }
         )
 
-    total_accounts = await discords().count_documents({"owner": user})
+    total_accounts = len(accounts)
     total_proxies = await proxies_coll().count_documents({"owner": user})
     assigned_proxies = await proxies_coll().count_documents({"owner": user, "assigned": True})
     free_proxies = total_proxies - assigned_proxies

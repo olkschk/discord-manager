@@ -272,6 +272,27 @@ async def delete_account(
     return {"deleted": True}
 
 
+@router.get("/{account_id}/credential")
+async def get_credential(
+    account_id: str,
+    field: str = "password",
+    user: str = Depends(require_login),
+) -> dict:
+    """Decrypt and return a single credential field on demand (password or token)."""
+    if field not in ("password", "discord_token"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid field")
+    if not ObjectId.is_valid(account_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid account id")
+    acc = await discords().find_one({"_id": ObjectId(account_id), "owner": user})
+    if acc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+    try:
+        value = decrypt(acc[field])
+    except (ValueError, KeyError):
+        return {"value": ""}
+    return {"value": value}
+
+
 @router.post("/{account_id}/login-by-mail")
 async def login_by_mail(
     account_id: str,

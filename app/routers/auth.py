@@ -29,7 +29,7 @@ async def login_submit(
     password: str = Form(...),
 ):
     user_doc = await users().find_one({"login": login})
-    if not user_doc or not verify_password(password, user_doc["password"]):
+    if not user_doc or not await verify_password(password, user_doc["password"]):
         logger.info("Failed login attempt for login=%r", login)
         return templates.TemplateResponse(
             request,

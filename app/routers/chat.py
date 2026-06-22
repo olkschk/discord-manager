@@ -369,7 +369,8 @@ async def list_topic_messages(topic_id: str) -> list[dict]:
             "reply_to_content": m.get("reply_to_content"),
             "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else None,
         })
-    return list(reversed(out))
+    out.reverse()
+    return out
 
 
 # ── DM monitor account selection ──────────────────────────────────────────────
@@ -474,7 +475,8 @@ async def get_dm_messages(sender: str, to: str) -> list[dict]:
             "timestamp": m["timestamp"].isoformat() if m.get("timestamp") else None,
             "dm_channel_id": m.get("dm_channel_id"),
         })
-    return list(reversed(out))
+    out.reverse()
+    return out
 
 
 @router.post("/private/mark-read")

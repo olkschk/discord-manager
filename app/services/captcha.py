@@ -24,6 +24,7 @@ import logging
 from urllib.parse import quote_plus, urlparse
 
 import aiohttp
+from app.services.discord_api import _get_session
 from aiohttp import ClientError, ClientTimeout
 
 from app.config import get_settings
@@ -136,32 +137,32 @@ async def _solve_anticaptcha_style(
     )
 
     timeout = ClientTimeout(total=settings.captcha_timeout)
-    async with aiohttp.ClientSession(timeout=timeout) as s:
-        async with s.post(f"{base_url}/createTask", json=create_payload) as r:
-            data = await r.json()
-        if not isinstance(data, dict) or data.get("errorId"):
-            logger.warning("captcha createTask failed: %s", data)
-            return None
-        task_id = data.get("taskId")
-        if not task_id:
-            return None
+    s = _get_session()
+    async with s.post(f"{base_url}/createTask", json=create_payload) as r:
+        data = await r.json()
+    if not isinstance(data, dict) or data.get("errorId"):
+        logger.warning("captcha createTask failed: %s", data)
+        return None
+    task_id = data.get("taskId")
+    if not task_id:
+        return None
 
-        for _ in range(settings.captcha_poll_attempts):
-            await asyncio.sleep(settings.captcha_poll_interval)
-            async with s.post(
-                f"{base_url}/getTaskResult",
-                json={"clientKey": api_key, "taskId": task_id},
-            ) as r:
-                data = await r.json()
-            if not isinstance(data, dict):
-                continue
-            if data.get("status") == "ready":
-                token = (data.get("solution") or {}).get("gRecaptchaResponse")
-                logger.info("captcha solved task=%s", task_id)
-                return token
-            if data.get("errorId"):
-                logger.warning("captcha solver error: %s", data)
-                return None
+    for _ in range(settings.captcha_poll_attempts):
+        await asyncio.sleep(settings.captcha_poll_interval)
+        async with s.post(
+            f"{base_url}/getTaskResult",
+            json={"clientKey": api_key, "taskId": task_id},
+        ) as r:
+            data = await r.json()
+        if not isinstance(data, dict):
+            continue
+        if data.get("status") == "ready":
+            token = (data.get("solution") or {}).get("gRecaptchaResponse")
+            logger.info("captcha solved task=%s", task_id)
+            return token
+        if data.get("errorId"):
+            logger.warning("captcha solver error: %s", data)
+            return None
 
     logger.warning("captcha solver timed out task=%s", task_id)
     return None
@@ -197,28 +198,28 @@ async def _solve_twocaptcha(
         sitekey[:12], bool(rqdata),
     )
 
-    async with aiohttp.ClientSession(timeout=timeout) as s:
-        async with s.get(f"{base}/in.php?" + "&".join(parts)) as r:
-            data = await r.json()
-        if not isinstance(data, dict) or data.get("status") != 1:
-            logger.warning("2captcha submit failed: %s", data)
-            return None
-        request_id = data.get("request")
+    s = _get_session()
+    async with s.get(f"{base}/in.php?" + "&".join(parts)) as r:
+        data = await r.json()
+    if not isinstance(data, dict) or data.get("status") != 1:
+        logger.warning("2captcha submit failed: %s", data)
+        return None
+    request_id = data.get("request")
 
-        for _ in range(settings.captcha_poll_attempts):
-            await asyncio.sleep(settings.captcha_poll_interval)
-            async with s.get(
-                f"{base}/res.php?key={api_key}&action=get&id={request_id}&json=1"
-            ) as r:
-                data = await r.json()
-            if not isinstance(data, dict):
-                continue
-            if data.get("status") == 1:
-                logger.info("2captcha solved request=%s", request_id)
-                return data.get("request")
-            if data.get("request") and data["request"] != "CAPCHA_NOT_READY":
-                logger.warning("2captcha solver error: %s", data)
-                return None
+    for _ in range(settings.captcha_poll_attempts):
+        await asyncio.sleep(settings.captcha_poll_interval)
+        async with s.get(
+            f"{base}/res.php?key={api_key}&action=get&id={request_id}&json=1"
+        ) as r:
+            data = await r.json()
+        if not isinstance(data, dict):
+            continue
+        if data.get("status") == 1:
+            logger.info("2captcha solved request=%s", request_id)
+            return data.get("request")
+        if data.get("request") and data["request"] != "CAPCHA_NOT_READY":
+            logger.warning("2captcha solver error: %s", data)
+            return None
 
     logger.warning("2captcha solver timed out request=%s", request_id)
     return None

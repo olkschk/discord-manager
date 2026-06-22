@@ -29,16 +29,26 @@ def decrypt(value: str) -> str:
         raise ValueError("Invalid or tampered ciphertext") from exc
 
 
-def hash_password(password: str) -> str:
-    """One-way hash for web user passwords."""
+def _hash_password_sync(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
 
 
-def verify_password(password: str, hashed: str) -> bool:
+def _verify_password_sync(password: str, hashed: str) -> bool:
     try:
         return bcrypt.checkpw(password.encode(), hashed.encode())
     except ValueError:
         return False
+
+
+async def hash_password(password: str) -> str:
+    """One-way hash for web user passwords (runs in thread to avoid blocking event loop)."""
+    import asyncio
+    return await asyncio.to_thread(_hash_password_sync, password)
+
+
+async def verify_password(password: str, hashed: str) -> bool:
+    import asyncio
+    return await asyncio.to_thread(_verify_password_sync, password, hashed)
 
 
 def require_login(request: Request) -> str:

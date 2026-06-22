@@ -31,8 +31,13 @@ def _get_session() -> aiohttp.ClientSession:
     global _shared_session
     if _shared_session is None or _shared_session.closed:
         _shared_session = aiohttp.ClientSession(
-            timeout=ClientTimeout(total=15),
-            connector=aiohttp.TCPConnector(limit=30, limit_per_host=10),
+            timeout=ClientTimeout(total=20),
+            connector=aiohttp.TCPConnector(
+                limit=30,
+                limit_per_host=10,
+                ttl_dns_cache=300,
+                use_dns_cache=True,
+            ),
         )
     return _shared_session
 
@@ -55,9 +60,19 @@ def build_proxy_url(ip: str, port: str, login: str, password: str, scheme: str =
     return f"{scheme}://{login}:{password}@{ip}:{port}"
 
 
+from functools import lru_cache
+import uuid as _uuid
+
+_SESSION_UUIDS = {
+    "client_launch_id": str(_uuid.uuid4()),
+    "launch_signature": str(_uuid.uuid4()),
+    "client_heartbeat_session_id": str(_uuid.uuid4()),
+}
+
+
+@lru_cache(maxsize=1)
 def _x_super_properties(ua: str) -> str:
-    """Base64-encoded JSON fingerprint Discord expects on every request."""
-    import uuid
+    """Base64-encoded JSON fingerprint — cached per process (UA never changes)."""
     chrome_ver = "147.0.0.0"
     if "Chrome/" in ua:
         try:
@@ -81,9 +96,7 @@ def _x_super_properties(ua: str) -> str:
         "release_channel": "stable",
         "client_build_number": _CLIENT_BUILD_NUMBER,
         "client_event_source": None,
-        "client_launch_id": str(uuid.uuid4()),
-        "launch_signature": str(uuid.uuid4()),
-        "client_heartbeat_session_id": str(uuid.uuid4()),
+        **_SESSION_UUIDS,
         "client_app_state": "focused",
     }
     return base64.b64encode(

@@ -13,6 +13,7 @@ import random
 import time
 
 import aiohttp
+from app.services.discord_api import _get_session
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +27,15 @@ async def _fetch_spotify_image_id(track_id: str) -> str | None:
         return _image_id_cache[track_id]
     try:
         url = f"https://open.spotify.com/oembed?url=https://open.spotify.com/track/{track_id}"
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
-                if r.status == 200:
-                    data = await r.json()
-                    img_url = data.get("thumbnail_url", "")
-                    if "i.scdn.co/image/" in img_url:
-                        image_id = img_url.split("i.scdn.co/image/")[-1]
-                        _image_id_cache[track_id] = image_id
-                        return image_id
+        s = _get_session()
+        async with s.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
+            if r.status == 200:
+                data = await r.json()
+                img_url = data.get("thumbnail_url", "")
+                if "i.scdn.co/image/" in img_url:
+                    image_id = img_url.split("i.scdn.co/image/")[-1]
+                    _image_id_cache[track_id] = image_id
+                    return image_id
     except Exception as exc:
         logger.debug("Spotify oembed fetch failed for %s: %s", track_id, exc)
     return None
@@ -55,13 +56,13 @@ async def _fetch_app_icon_hash(app_id: str) -> str | None:
         return _app_icon_cache[app_id]
     try:
         url = f"https://discord.com/api/v9/applications/{app_id}/rpc"
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
-                if r.status == 200:
-                    data = await r.json()
-                    icon = data.get("icon")
-                    _app_icon_cache[app_id] = icon
-                    return icon
+        s = _get_session()
+        async with s.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
+            if r.status == 200:
+                data = await r.json()
+                icon = data.get("icon")
+                _app_icon_cache[app_id] = icon
+                return icon
     except Exception as exc:
         logger.debug("App icon fetch failed for %s: %s", app_id, exc)
     _app_icon_cache[app_id] = None

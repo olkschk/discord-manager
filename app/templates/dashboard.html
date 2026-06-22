@@ -183,9 +183,9 @@
               </td>
               <td>{{ a.username }}</td>
               <td>{{ a.name }}</td>
-              <td class="pw-cell copyable" data-copy="{{ a.password }}" title="Click to copy" style="cursor:pointer;">
+              <td class="pw-cell copyable" data-id="{{ a.id }}" data-field="password" title="Click to copy" style="cursor:pointer;">
                 <span class="pw-dots">••••••••</span>
-                <span class="pw-text" style="display:none; font-family:var(--font-mono); font-size:11px;">{{ a.password }}</span>
+                <span class="pw-text" style="display:none; font-family:var(--font-mono); font-size:11px;"></span>
                 <button type="button" class="small pw-toggle" style="margin-left:4px; padding:1px 5px; font-size:10px;">show</button>
               </td>
               <td>{% if a.has_proxy %}<span class="dot ok" title="Assigned"></span>{% else %}<span class="dot" title="None"></span>{% endif %}</td>
@@ -212,7 +212,7 @@
               <td class="row-actions">
                 <button type="button" class="small row-inbox">Inbox</button>
                 <button type="button" class="small row-reset">Reset pw</button>
-                <button type="button" class="small row-token" data-token="{{ a.discord_token }}">Token</button>
+                <button type="button" class="small row-token" data-id="{{ a.id }}">Token</button>
               </td>
             </tr>
             {% else %}

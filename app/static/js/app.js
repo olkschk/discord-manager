@@ -308,8 +308,15 @@ document.addEventListener("click", async (e) => {
   }
 });
 
-// ── Inventory: password show/hide toggle ─────────────────────────────────
-document.addEventListener("click", (e) => {
+// ── Lazy credential fetch ─────────────────────────────────────────────────
+async function fetchCredential(accountId, field) {
+  const r = await fetch(`/api/accounts/${accountId}/credential?field=${field}`);
+  const d = await r.json().catch(() => ({}));
+  return d.value || "";
+}
+
+// ── Inventory: password show/hide toggle (lazy decrypt) ──────────────────
+document.addEventListener("click", async (e) => {
   const btn = e.target.closest(".pw-toggle");
   if (!btn) return;
   const cell = btn.closest(".pw-cell");
@@ -318,9 +325,18 @@ document.addEventListener("click", (e) => {
   const text = cell.querySelector(".pw-text");
   if (!dots || !text) return;
   const visible = text.style.display !== "none";
-  dots.style.display = visible ? "" : "none";
-  text.style.display = visible ? "none" : "";
-  btn.textContent = visible ? "show" : "hide";
+  if (visible) {
+    dots.style.display = ""; text.style.display = "none"; btn.textContent = "show";
+  } else {
+    if (!cell._loaded) {
+      btn.textContent = "…";
+      const val = await fetchCredential(cell.dataset.id, "password");
+      text.textContent = val;
+      cell.dataset.copy = val;
+      cell._loaded = true;
+    }
+    dots.style.display = "none"; text.style.display = ""; btn.textContent = "hide";
+  }
 });
 
 // ── Row actions ──────────────────────────────────────────────────────────
@@ -491,10 +507,15 @@ function copyText(text) {
 }
 
 // ── Click-to-copy on .copyable cells ──────────────────────────────────────────
-document.addEventListener("click", e => {
+document.addEventListener("click", async (e) => {
   const cell = e.target.closest(".copyable");
   if (!cell || e.target.closest("button") || e.target.closest("select")) return;
-  const text = cell.dataset.copy;
+  let text = cell.dataset.copy;
+  // Lazy fetch for credential cells that haven't been loaded yet
+  if (!text && cell.dataset.id && cell.dataset.field) {
+    text = await fetchCredential(cell.dataset.id, cell.dataset.field);
+    cell.dataset.copy = text;
+  }
   if (!text) return;
   copyText(text);
   if (cell.querySelector(".copy-tip")) return;
@@ -514,12 +535,14 @@ document.addEventListener("click", e => {
   const closeBtn = document.getElementById("tokenModalClose");
   const copyBtn = document.getElementById("tokenCopyBtn");
 
-  document.addEventListener("click", e => {
+  document.addEventListener("click", async (e) => {
     const btn = e.target.closest(".row-token");
     if (!btn) return;
-    const token = btn.dataset.token || "";
-    valueEl.value = token || "(token not available)";
+    const id = btn.dataset.id;
+    valueEl.value = "Loading…";
     modal.hidden = false;
+    const token = await fetchCredential(id, "discord_token");
+    valueEl.value = token || "(token not available)";
   });
 
   closeBtn.addEventListener("click", () => { modal.hidden = true; });

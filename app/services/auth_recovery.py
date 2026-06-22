@@ -56,11 +56,11 @@ async def authorize_ip(token: str, *, proxy_url: str | None = None) -> bool:
     }
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            async with s.post(url, headers=headers, json={"token": token}, proxy=proxy_url) as resp:
-                ok = resp.status < 400
-                logger.info("authorize_ip status=%s", resp.status)
-                return ok
+        s = _get_session()
+        async with s.post(url, headers=headers, json={"token": token}, proxy=proxy_url) as resp:
+            ok = resp.status < 400
+            logger.info("authorize_ip status=%s", resp.status)
+            return ok
     except (ClientError, TimeoutError) as exc:
         logger.warning("authorize_ip network error: %s", exc)
         return False
@@ -169,7 +169,7 @@ async def full_verify_account(
     4. POST /auth/verify {token} — with captcha auto-solve if needed
     5. Returns the NEW Discord auth token on success (Discord rotates it), or None.
     """
-    from app.services.discord_api import verify_resend, verify_with_token
+    from app.services.discord_api import verify_resend, verify_with_token, _get_session
 
     logger.info("full_verify_account: sending verification email to %s", email)
 
@@ -241,11 +241,11 @@ async def forgot_password(
     }
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            async with s.post(url, headers=headers, json=payload, proxy=proxy_url) as resp:
-                ok = resp.status < 400
-                logger.info("forgot_password status=%s", resp.status)
-                return ok
+        s = _get_session()
+        async with s.post(url, headers=headers, json=payload, proxy=proxy_url) as resp:
+            ok = resp.status < 400
+            logger.info("forgot_password status=%s", resp.status)
+            return ok
     except (ClientError, TimeoutError) as exc:
         logger.warning("forgot_password network error: %s", exc)
         return False
@@ -264,13 +264,13 @@ async def reset_password_with_token(
     }
     timeout = ClientTimeout(total=settings.discord_http_timeout)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            async with s.post(url, headers=headers, json=payload, proxy=proxy_url) as resp:
-                if resp.status < 400:
-                    return await resp.json()
-                body_preview = (await resp.text())[:200]
-                logger.info("reset_password status=%s body=%s", resp.status, body_preview)
-                return None
+        s = _get_session()
+        async with s.post(url, headers=headers, json=payload, proxy=proxy_url) as resp:
+            if resp.status < 400:
+                return await resp.json()
+            body_preview = (await resp.text())[:200]
+            logger.info("reset_password status=%s body=%s", resp.status, body_preview)
+            return None
     except (ClientError, TimeoutError) as exc:
         logger.warning("reset_password network error: %s", exc)
         return None
