@@ -1207,24 +1207,32 @@ document.querySelectorAll(".sched-quick").forEach(btn => {
     const delaySec = parseInt(btn.dataset.sec);
     const scheduledAt = new Date(Date.now() + delaySec * 1000).toISOString();
 
-    const resp = await fetch("/api/chat/schedule", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        account_id: accountId,
-        channel_id: currentTopic,
-        content: text,
-        reply_to: replyTo,
-        scheduled_at: scheduledAt,
-      }),
-    });
-    const d = await resp.json().catch(() => ({}));
-    if (resp.ok) {
+    // If duplicate mode — schedule to all selected channels
+    const isDup = document.getElementById("duplicateToggle")?.checked;
+    const channels = isDup ? [...dupSelected] : [currentTopic];
+    if (!channels.length) { out.className = "result err"; out.textContent = "Select at least one channel"; return; }
+
+    let ok = 0;
+    for (const ch of channels) {
+      const resp = await fetch("/api/chat/schedule", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          account_id: accountId,
+          channel_id: ch,
+          content: text,
+          reply_to: replyTo,
+          scheduled_at: scheduledAt,
+        }),
+      });
+      if (resp.ok) ok++;
+    }
+    if (ok > 0) {
       out.className = "result ok";
-      out.textContent = `Scheduled in ${delaySec >= 60 ? (delaySec / 60) + "m" : delaySec + "s"}`;
+      out.textContent = `Scheduled ${ok} channel(s) in ${delaySec >= 60 ? (delaySec / 60) + "m" : delaySec + "s"}`;
       loadScheduled();
     } else {
-      out.className = "result err"; out.textContent = d.detail || "Failed to schedule";
+      out.className = "result err"; out.textContent = "Failed to schedule";
     }
   });
 });
