@@ -924,10 +924,13 @@ function setUsernameStatus(text, type) {
 
 document.getElementById("ciUsername")?.addEventListener("input", () => {
   clearTimeout(usernameCheckTimer);
-  const val = document.getElementById("ciUsername").value.trim();
+  const input = document.getElementById("ciUsername");
+  // Auto-lowercase and strip whitespace
+  const val = input.value.trim().toLowerCase();
+  if (val !== input.value) input.value = val;
   if (!val || val.length < 2) { setUsernameStatus("", ""); return; }
   if (!/^[a-z0-9_.]{2,32}$/.test(val)) {
-    setUsernameStatus("Invalid — only a-z, 0-9, _ allowed", "err");
+    setUsernameStatus("Invalid — only a-z, 0-9, . _ allowed", "err");
     return;
   }
   setUsernameStatus("Checking…", "muted");
@@ -985,7 +988,7 @@ document.getElementById("ciForm")?.addEventListener("submit", async (e) => {
     setResult(out, true, "Done");
     setTimeout(() => { closeCustomModal(); location.reload(); }, 600);
   } else {
-    setResult(out, false, data.error || `Error ${r.status}`);
+    setResult(out, false, data.error || data.detail || `Error ${r.status}: ${JSON.stringify(data)}`);
   }
 });
 

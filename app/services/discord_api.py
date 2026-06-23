@@ -629,7 +629,7 @@ async def patch_profile(
 
         return result
     except Exception as exc:  # noqa: BLE001
-        logger.warning("patch_profile error: %s", exc)
+        logger.exception("patch_profile error: %s", exc)
         return None
 
 
