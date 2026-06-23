@@ -639,34 +639,33 @@ document.getElementById("reactRunBtn")?.addEventListener("click", async () => {
   renderPending();
   out.className = "result"; out.textContent = `0 / ${total}…`;
 
-  let done = 0, ok = 0;
+  // Group by emoji, send all accounts per emoji in one bulk request
+  const emojiGroups = new Map();
   for (const job of jobs) {
-    if (utilsReactCancelled) {
-      for (const j of jobs) { if (j.status === "pending") j.status = "cancelled"; }
-      renderPending(); break;
-    }
+    if (!emojiGroups.has(job.emoji)) emojiGroups.set(job.emoji, []);
+    emojiGroups.get(job.emoji).push(job);
+  }
+
+  let queued = 0;
+  for (const [emoji, emojiJobs] of emojiGroups) {
+    const accIds = emojiJobs.map(j => j.accId);
     const r = await fetch("/api/chat/react-bulk", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ account_ids: [job.accId], channel_id, message_id, emoji: job.emoji, delay_min: 0, delay_max: 0 }),
+      body: JSON.stringify({ account_ids: accIds, channel_id, message_id, emoji, delay_min, delay_max }),
     });
     const data = await r.json().catch(() => ({}));
-    const success = r.ok && (data.results || []).some(x => x.ok);
-    job.status = success ? "ok" : "err";
-    if (success) ok++;
-    done++;
-    renderPending();
-    out.textContent = `${done} / ${total}…`;
-    if (done < total && !utilsReactCancelled && delay_max > 0) {
-      const ms = (Math.random() * (delay_max - delay_min) + delay_min) * 1000;
-      await new Promise(res => setTimeout(res, ms));
+    if (r.ok && data.ok) {
+      queued += data.queued || accIds.length;
+      for (const job of emojiJobs) job.status = "ok";
+    } else {
+      for (const job of emojiJobs) job.status = "err";
     }
+    renderPending();
   }
 
   submitBtn.disabled = false;
-  setResult(out, ok > 0, utilsReactCancelled
-    ? `Cancelled · ${ok}/${done} reacted`
-    : `${ok}/${total} reacted · ${[...utilsReactEmojiCounts.keys()].join("")}`);
+  setResult(out, queued > 0, `${queued} reactions queued (running in background)`);
 });
 
 // Join server
