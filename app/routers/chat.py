@@ -36,13 +36,15 @@ async def _send_with_typing(
     *,
     reply_to: str | None = None,
     proxy_url: str | None = None,
+    use_semaphore: bool = True,
 ) -> dict | None:
-    """Trigger typing then send. Delay scales with message length (~50 WPM).
+    """Trigger typing then send. Delay scales with message length.
 
     Discord's typing indicator lasts ~8 s, so for longer delays we
     re-trigger typing every 7 s to keep the pencil visible.
+    use_semaphore=False for parallel duplicate sends.
     """
-    async with _send_sem:
+    async def _inner() -> dict | None:
         # 15 chars ~2s, 50 chars ~5s, 150 chars ~10s, 300+ chars ~20s+
         n = len(content)
         if n <= 15:
@@ -65,6 +67,11 @@ async def _send_with_typing(
                 await trigger_typing(token, channel_id, proxy_url=proxy_url)
 
         return await send_message(token, channel_id, content, reply_to=reply_to, proxy_url=proxy_url)
+
+    if use_semaphore:
+        async with _send_sem:
+            return await _inner()
+    return await _inner()
 
 
 router = APIRouter(
@@ -129,13 +136,13 @@ async def duplicate(body: DuplicateBody, user: str = Depends(require_login)) -> 
     content = body.content
 
     async def _bg_send() -> None:
-        for i, cid in enumerate(channels):
+        async def _send_one(cid: str) -> None:
             try:
-                await send_message(token, cid, content, proxy_url=proxy_url)
+                await _send_with_typing(token, cid, content, proxy_url=proxy_url, use_semaphore=False)
             except Exception:  # noqa: BLE001
                 logger.warning("duplicate: failed channel %s", cid)
-            if i < len(channels) - 1:
-                await asyncio.sleep(random.uniform(0.5, 1.5))
+
+        await asyncio.gather(*(_send_one(cid) for cid in channels))
 
     task = asyncio.create_task(_bg_send(), name="duplicate-send")
     _background_tasks.add(task)
