@@ -106,6 +106,7 @@
           </label>
         </div>
         <input type="hidden" id="activityMode" value="random" />
+        <input type="hidden" id="activitySpecialName" value="" />
         <!-- Group filter -->
         <div style="display:flex; gap:var(--sp-xs); margin-bottom:var(--sp-sm); flex-wrap:wrap;">
           {% for grp in ["All", "Massovka1", "Massovka2", "Massovka3", "Chatter1", "Chatter2", "Chatter3", "Infl1", "Infl2", "Infl3"] %}
@@ -808,7 +809,9 @@ document.addEventListener("click", (e) => {
   document.getElementById("activityMode").value = mode;
   document.getElementById("activityGamePicker").style.display = mode === "game" ? "" : "none";
   if (mode === "special") {
-    document.getElementById("activityGameName").value = btn.dataset.special || "";
+    document.getElementById("activitySpecialName").value = btn.dataset.special || "";
+  } else {
+    document.getElementById("activitySpecialName").value = "";
   }
 });
 
@@ -841,7 +844,9 @@ document.getElementById("activityApplyBtn")?.addEventListener("click", async () 
   const out = document.getElementById("activityResult");
   const ids = gather("activity");
   const mode = document.getElementById("activityMode").value;
-  const game_name = document.getElementById("activityGameName")?.value || null;
+  const game_name = mode === "special"
+    ? document.getElementById("activitySpecialName").value
+    : (document.getElementById("activityGameName")?.value || null);
   if (!ids.length) return setResult(out, false, "Select at least one account");
   setResult(out, true, `Applying ${mode} activity for ${ids.length}…`);
   const customStart = document.getElementById("activityCustomStart")?.checked;

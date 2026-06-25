@@ -250,7 +250,10 @@ async def set_activity(
     conn = await get_or_create(account_id)
     if conn is None:
         return False
-    await conn.set_presence(activity=activity, activity_type=activity_type, activity_name=activity_name)
+    # Preserve current status (online/idle/dnd/invisible) when setting activity
+    acc = await discords().find_one({"_id": ObjectId(account_id)})
+    current_status = (acc or {}).get("status", "online")
+    await conn.set_presence(activity=activity, activity_type=activity_type, activity_name=activity_name, status=current_status)
     stored = activity or {"type": activity_type, "name": activity_name}
     await discords().update_one(
         {"_id": ObjectId(account_id)},
