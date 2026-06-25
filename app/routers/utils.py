@@ -167,7 +167,8 @@ async def set_custom_identity(
     # Custom status text (settings-proto endpoint + gateway PRESENCE_UPDATE)
     if has_status:
         current_status = acc.get("status", "online")
-        res = await set_custom_status(token, body.custom_status or "", status=current_status, proxy_url=proxy_url)
+        proto_status = None if current_status == "invisible" else current_status
+        res = await set_custom_status(token, body.custom_status or "", status=proto_status, proxy_url=proxy_url)
         if not res.get("ok"):
             return {"ok": False, "error": "custom_status_failed"}
 
