@@ -589,11 +589,13 @@ async def patch_profile(
         user_payload["avatar"] = avatar_base64
 
     try:
+        logger.info("patch_profile: payload_keys=%s proxy=%s", list(user_payload.keys()) if user_payload else [], bool(proxy_url))
         async with AsyncSession(impersonate="chrome124") as session:
             if user_payload:
                 u = f"{api}/users/@me"
                 resp = await session.patch(u, headers=headers, json=user_payload, proxies=proxies)
                 body = resp.json() if resp.text else {}
+                logger.info("patch_profile /users/@me status=%s body_keys=%s", resp.status_code, list(body.keys()) if isinstance(body, dict) else type(body))
 
                 # Auto-solve captcha (same pattern as login flow)
                 if resp.status_code == 400 and isinstance(body, dict) and body.get("captcha_sitekey"):
