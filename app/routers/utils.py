@@ -164,12 +164,28 @@ async def set_custom_identity(
         if update:
             await discords().update_one({"_id": ObjectId(body.account_id)}, {"$set": update})
 
-    # Custom status text (settings-proto endpoint)
+    # Custom status text (settings-proto endpoint + gateway PRESENCE_UPDATE)
     if has_status:
         current_status = acc.get("status", "online")
         res = await set_custom_status(token, body.custom_status or "", status=current_status, proxy_url=proxy_url)
         if not res.get("ok"):
             return {"ok": False, "error": "custom_status_failed"}
+
+        # Also push custom status via gateway as type=4 activity so it's
+        # visible to other users immediately (settings-proto alone doesn't
+        # always broadcast to the gateway session).
+        conn = await gateway_pool.get_or_create(body.account_id)
+        if conn is not None:
+            activities = []
+            if acc.get("activity"):
+                activities.append(acc["activity"])
+            if body.custom_status:
+                activities.append({
+                    "type": 4,
+                    "name": "Custom Status",
+                    "state": body.custom_status,
+                })
+            await conn.update_presence(status=current_status, activities=activities)
 
     return {"ok": True}
 
