@@ -1145,19 +1145,29 @@ def _build_status_proto(status: str) -> str:
     return base64.b64encode(outer).decode("ascii")
 
 
-def _build_custom_status_proto(text: str) -> str:
-    """Build a base64 PreloadedUserSettings proto with only the custom status text.
+def _build_custom_status_proto(text: str, status: str | None = None) -> str:
+    """Build a base64 PreloadedUserSettings proto with custom status text
+    AND the current presence status to prevent Discord from resetting it.
 
-    Field 11 (StatusSettings) -> field 2 (CustomStatus) -> field 1 (text string).
-    Empty text clears the custom status.
+    Field 11 (StatusSettings):
+      field 1 (Status) -> message { field 1 (string) = "dnd"/"online"/... }
+      field 2 (CustomStatus) -> message { field 1 (text string) }
     """
+    inner = b""
+    # Include presence status so Discord doesn't reset it
+    if status:
+        name = status.encode("utf-8")
+        str_field = bytes([0x0A, len(name)]) + name
+        status_wrapper = bytes([0x0A, len(str_field)]) + str_field
+        inner += status_wrapper
+    # Custom status text
     text_bytes = text.encode("utf-8")
     if text_bytes:
-        text_field = bytes([0x0A, len(text_bytes)]) + text_bytes  # field 1, wiretype 2
+        text_field = bytes([0x0A, len(text_bytes)]) + text_bytes
     else:
         text_field = b""
-    custom_status = bytes([0x12, len(text_field)]) + text_field  # field 2, wiretype 2
-    outer = bytes([0x5A, len(custom_status)]) + custom_status  # field 11, wiretype 2
+    inner += bytes([0x12, len(text_field)]) + text_field
+    outer = bytes([0x5A, len(inner)]) + inner
     return base64.b64encode(outer).decode("ascii")
 
 
@@ -1165,12 +1175,13 @@ async def set_custom_status(
     token: str,
     text: str,
     *,
+    status: str | None = None,
     proxy_url: str | None = None,
 ) -> dict[str, Any]:
     """PATCH /users/@me/settings-proto/1 — set or clear the custom status text."""
     settings = get_settings()
     timeout = ClientTimeout(total=10)
-    payload = {"settings": _build_custom_status_proto(text)}
+    payload = {"settings": _build_custom_status_proto(text, status=status)}
     try:
         session = _get_session()
         async with session.patch(
