@@ -1153,8 +1153,13 @@ def _build_custom_status_proto(text: str, status: str | None = None) -> str:
 
     Field 11 (StatusSettings):
       field 1 (Status) -> message { field 1 (string) = "dnd"/"online"/... }
-      field 2 (CustomStatus) -> message { field 1 (text string) }
+      field 2 (CustomStatus) -> message {
+        field 1 (text string),
+        field 4 (created_at fixed64 ms),
+      }
     """
+    import struct
+
     inner = b""
     # Include presence status so Discord doesn't reset it
     if status:
@@ -1162,13 +1167,15 @@ def _build_custom_status_proto(text: str, status: str | None = None) -> str:
         str_field = bytes([0x0A, len(name)]) + name
         status_wrapper = bytes([0x0A, len(str_field)]) + str_field
         inner += status_wrapper
-    # Custom status text
+    # Custom status: text + created_at timestamp (required for Discord to display it)
     text_bytes = text.encode("utf-8")
+    custom_inner = b""
     if text_bytes:
-        text_field = bytes([0x0A, len(text_bytes)]) + text_bytes
-    else:
-        text_field = b""
-    inner += bytes([0x12, len(text_field)]) + text_field
+        custom_inner += bytes([0x0A, len(text_bytes)]) + text_bytes
+        # field 4 = created_at (fixed64, wiretype 1 = 0x21), milliseconds
+        now_ms = int(time.time() * 1000)
+        custom_inner += b"\x21" + struct.pack("<q", now_ms)
+    inner += bytes([0x12, len(custom_inner)]) + custom_inner
     outer = bytes([0x5A, len(inner)]) + inner
     return base64.b64encode(outer).decode("ascii")
 
