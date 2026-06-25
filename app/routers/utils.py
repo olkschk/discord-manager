@@ -171,20 +171,16 @@ async def set_custom_identity(
         if not res.get("ok"):
             return {"ok": False, "error": "custom_status_failed"}
 
-        # Also push custom status via gateway as type=4 activity so it's
-        # visible to other users immediately (settings-proto alone doesn't
-        # always broadcast to the gateway session).
+        # Persist custom status in DB so set_status/supervisor can restore it
+        await discords().update_one(
+            {"_id": ObjectId(body.account_id)},
+            {"$set": {"custom_status": body.custom_status or ""}},
+        )
+
+        # Push via gateway PRESENCE_UPDATE with type=4 activity
         conn = await gateway_pool.get_or_create(body.account_id)
         if conn is not None:
-            activities = []
-            if acc.get("activity"):
-                activities.append(acc["activity"])
-            if body.custom_status:
-                activities.append({
-                    "type": 4,
-                    "name": "Custom Status",
-                    "state": body.custom_status,
-                })
+            activities = gateway_pool.build_activities(acc, body.custom_status)
             await conn.update_presence(status=current_status, activities=activities)
 
     return {"ok": True}

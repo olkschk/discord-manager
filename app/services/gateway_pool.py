@@ -127,13 +127,11 @@ async def _supervisor_loop(account_id: str) -> None:
                     continue
                 _connections[account_id] = new_conn
 
-            # Restore last known presence from DB.
+            # Restore last known presence from DB (game activity + custom status).
             acc = await discords().find_one({"_id": ObjectId(account_id)})
             if acc:
-                activity = acc.get("activity")
-                activities = [activity] if isinstance(activity, dict) else []
                 status = acc.get("status", "online")
-                await new_conn.update_presence(status=status, activities=activities)
+                await new_conn.update_presence(status=status, activities=build_activities(acc))
                 logger.info("supervisor: presence restored for %s status=%s", account_id, status)
 
     except asyncio.CancelledError:
@@ -250,15 +248,16 @@ async def set_activity(
     conn = await get_or_create(account_id)
     if conn is None:
         return False
-    # Preserve current status (online/idle/dnd/invisible) when setting activity
     acc = await discords().find_one({"_id": ObjectId(account_id)})
     current_status = (acc or {}).get("status", "online")
-    await conn.set_presence(activity=activity, activity_type=activity_type, activity_name=activity_name, status=current_status)
     stored = activity or {"type": activity_type, "name": activity_name}
+    # Save activity first so build_activities picks it up
     await discords().update_one(
         {"_id": ObjectId(account_id)},
         {"$set": {"activity": stored}},
     )
+    acc["activity"] = stored
+    await conn.update_presence(status=current_status, activities=build_activities(acc))
     return True
 
 
@@ -281,6 +280,20 @@ async def clear_activity(account_id: str) -> bool:
 VALID_STATUSES = {"online", "idle", "dnd", "invisible"}
 
 
+def build_activities(acc: dict, custom_status_override: str | None = None) -> list[dict]:
+    """Build the activities list for PRESENCE_UPDATE from an account doc.
+
+    Includes game/spotify activity + custom status (type=4) if set.
+    """
+    activities: list[dict] = []
+    if acc.get("activity") and isinstance(acc["activity"], dict):
+        activities.append(acc["activity"])
+    cs = custom_status_override if custom_status_override is not None else acc.get("custom_status")
+    if cs:
+        activities.append({"type": 4, "name": "Custom Status", "state": cs})
+    return activities
+
+
 async def set_status(account_id: str, status: str) -> bool:
     """Set presence status via gateway PRESENCE_UPDATE + DB persistence.
 
@@ -298,8 +311,7 @@ async def set_status(account_id: str, status: str) -> bool:
 
     conn = await get_or_create(account_id)
     if conn is not None:
-        activities = [acc["activity"]] if acc.get("activity") else []
-        await conn.update_presence(status=status, activities=activities)
+        await conn.update_presence(status=status, activities=build_activities(acc))
 
     await discords().update_one(
         {"_id": ObjectId(account_id)},
