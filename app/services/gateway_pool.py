@@ -282,9 +282,11 @@ VALID_STATUSES = {"online", "idle", "dnd", "invisible"}
 
 
 async def set_status(account_id: str, status: str) -> bool:
-    """Set presence status (online/idle/dnd/invisible) via the settings-proto endpoint
-    (the same call the official client makes — gateway PRESENCE_UPDATE alone does not stick).
-    Also nudges the gateway connection (if any) so it doesn't override it on next heartbeat.
+    """Set presence status via gateway PRESENCE_UPDATE + DB persistence.
+
+    No settings-proto PATCH — that would overwrite field 11 and clear
+    the custom status text. The supervisor restores status from DB on
+    reconnect, so persistence is handled without settings-proto.
     """
     if status not in VALID_STATUSES:
         return False
@@ -293,23 +295,7 @@ async def set_status(account_id: str, status: str) -> bool:
     acc = await discords().find_one({"_id": ObjectId(account_id)})
     if acc is None:
         return False
-    try:
-        token = decrypt(acc["discord_token"])
-    except ValueError:
-        return False
-    proxy_url = await _resolve_proxy(acc)
 
-    # Discord's settings-proto endpoint silently normalizes a persisted "invisible"
-    # status to "dnd" — invisible only exists as a gateway-side presence value, not
-    # a stored setting. Skip the PATCH for it; the gateway PRESENCE_UPDATE below is
-    # what actually makes the account appear offline to others.
-    if status != "invisible":
-        out = await set_user_status(token, status, proxy_url=proxy_url)
-        if not out.get("ok"):
-            return False
-
-    # A status only shows to other users while a gateway session is broadcasting
-    # presence — open one (or reuse the existing one) and push the new status.
     conn = await get_or_create(account_id)
     if conn is not None:
         activities = [acc["activity"]] if acc.get("activity") else []
