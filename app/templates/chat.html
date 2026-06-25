@@ -682,13 +682,18 @@ document.getElementById("sendForm").addEventListener("submit", async (e) => {
   if (document.getElementById("duplicateToggle").checked) {
     const channels = [...dupSelected];
     if (!channels.length) { out.className="result err"; out.textContent="Select at least one channel"; return; }
-    const r = await fetch("/api/chat/duplicate", { method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ account_id: accountId, channel_ids: channels, content: text }) });
+    const fd = new FormData();
+    fd.append("account_id", accountId);
+    fd.append("channel_ids", JSON.stringify(channels));
+    fd.append("content", text || "");
+    if (file) fd.append("file", file, file.name);
+    const r = await fetch("/api/chat/duplicate", { method:"POST", body: fd });
     const d = await r.json();
     if (r.ok && d.ok) {
       out.className = "result ok";
       out.textContent = `Queued ${d.queued} channel(s) — sending in background`;
       document.getElementById("sendText").value = "";
+      fileInput.value = ""; fileLabel.textContent = "Attach file";
       setReply(null);
     } else {
       out.className = "result err";

@@ -154,7 +154,12 @@ function updateBulkState() {
 }
 
 document.getElementById("checkAll")?.addEventListener("change", (e) => {
-  document.querySelectorAll(".row-check").forEach(cb => { cb.checked = e.target.checked; });
+  document.querySelectorAll(".accounts tbody tr[data-id]").forEach(row => {
+    if (row.style.display !== "none") {
+      const cb = row.querySelector(".row-check");
+      if (cb) cb.checked = e.target.checked;
+    }
+  });
   updateBulkState();
 });
 
@@ -171,9 +176,12 @@ document.querySelectorAll(".row-check").forEach(cb => {
 });
 
 document.getElementById("selectAllBtn")?.addEventListener("click", () => {
-  document.querySelectorAll(".row-check").forEach(cb => { cb.checked = true; });
-  const all = document.getElementById("checkAll");
-  if (all) { all.checked = true; all.indeterminate = false; }
+  document.querySelectorAll(".accounts tbody tr[data-id]").forEach(row => {
+    if (row.style.display !== "none") {
+      const cb = row.querySelector(".row-check");
+      if (cb) cb.checked = true;
+    }
+  });
   updateBulkState();
 });
 

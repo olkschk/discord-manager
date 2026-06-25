@@ -81,6 +81,8 @@
           <button type="button" class="activity-mode-btn primary" data-mode="random">🎲 Random</button>
           <button type="button" class="activity-mode-btn" data-mode="game">🎮 Game</button>
           <span style="width:1px;height:20px;background:var(--border-visible);"></span>
+          <span id="specialBtns" style="display:flex;gap:var(--sp-xs);"></span>
+          <span style="width:1px;height:20px;background:var(--border-visible);"></span>
           <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; color:var(--text-secondary); white-space:nowrap;">
             <input type="checkbox" id="activityCustomStart" />
             Custom start time
@@ -768,7 +770,7 @@ document.querySelectorAll(".mfa-code-btn").forEach(btn => {
   });
 });
 
-// Activity — load game list on page load
+// Activity — load game list + special buttons on page load
 (async () => {
   try {
     const r = await fetch("/api/utils/activity/templates");
@@ -781,16 +783,33 @@ document.querySelectorAll(".mfa-code-btn").forEach(btn => {
         sel.appendChild(opt);
       });
     }
+    const container = document.getElementById("specialBtns");
+    if (container && data.specials) {
+      data.specials.forEach(name => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "activity-mode-btn";
+        btn.dataset.mode = "special";
+        btn.dataset.special = name;
+        btn.textContent = name;
+        btn.style.cssText = "font-size:10px;";
+        container.appendChild(btn);
+      });
+    }
   } catch {}
 })();
 
-document.querySelectorAll(".activity-mode-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".activity-mode-btn").forEach(b => b.classList.remove("primary"));
-    btn.classList.add("primary");
-    document.getElementById("activityMode").value = btn.dataset.mode;
-    document.getElementById("activityGamePicker").style.display = btn.dataset.mode === "game" ? "" : "none";
-  });
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".activity-mode-btn");
+  if (!btn) return;
+  document.querySelectorAll(".activity-mode-btn").forEach(b => b.classList.remove("primary"));
+  btn.classList.add("primary");
+  const mode = btn.dataset.mode;
+  document.getElementById("activityMode").value = mode;
+  document.getElementById("activityGamePicker").style.display = mode === "game" ? "" : "none";
+  if (mode === "special") {
+    document.getElementById("activityGameName").value = btn.dataset.special || "";
+  }
 });
 
 document.getElementById("activityCustomStart")?.addEventListener("change", (e) => {

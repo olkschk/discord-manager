@@ -119,26 +119,41 @@ async def send(body: SendBody, user: str = Depends(require_login)) -> dict:
     return {"sent": True}
 
 
-class DuplicateBody(BaseModel):
-    account_id: str
-    channel_ids: list[str]
-    content: str = Field(..., min_length=1, max_length=2000)
-
-
 @router.post("/duplicate")
-async def duplicate(body: DuplicateBody, user: str = Depends(require_login)) -> dict:
-    resolved = await load_account_token_and_proxy(body.account_id, owner=user)
+async def duplicate(
+    account_id: str = Form(...),
+    channel_ids: str = Form(...),
+    content: str = Form(""),
+    file: UploadFile | None = File(None),
+    user: str = Depends(require_login),
+) -> dict:
+    import json as _json
+    resolved = await load_account_token_and_proxy(account_id, owner=user)
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found or token unreadable")
     _, token, proxy_url = resolved
 
-    channels = list(body.channel_ids)
-    content = body.content
+    channels = _json.loads(channel_ids)
+    msg_content = content
+
+    # Read file bytes now while request is alive
+    file_data: tuple[str, bytes, str | None] | None = None
+    if file and file.filename:
+        blob = await file.read()
+        if len(blob) > MAX_FILE_BYTES:
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large (max 8 MB)")
+        file_data = (file.filename, blob, file.content_type)
 
     async def _bg_send() -> None:
         async def _send_one(cid: str) -> None:
             try:
-                await _send_with_typing(token, cid, content, proxy_url=proxy_url, use_semaphore=False)
+                if file_data:
+                    fname, blob, ctype = file_data
+                    await trigger_typing(token, cid, proxy_url=proxy_url)
+                    await asyncio.sleep(random.uniform(1.0, 2.5))
+                    await send_message_with_files(token, cid, msg_content, [(fname, blob, ctype)], proxy_url=proxy_url)
+                else:
+                    await _send_with_typing(token, cid, msg_content, proxy_url=proxy_url, use_semaphore=False)
             except Exception:  # noqa: BLE001
                 logger.warning("duplicate: failed channel %s", cid)
 
@@ -147,7 +162,7 @@ async def duplicate(body: DuplicateBody, user: str = Depends(require_login)) -> 
     task = asyncio.create_task(_bg_send(), name="duplicate-send")
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
-    return {"ok": True, "queued": len(body.channel_ids)}
+    return {"ok": True, "queued": len(channels)}
 
 
 # ── React (single) ────────────────────────────────────────────────────────────

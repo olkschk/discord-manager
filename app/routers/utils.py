@@ -313,7 +313,7 @@ async def setup_two_fa(
 
 # ── Activity (gateway PRESENCE_UPDATE) ──────────────────────────────────────
 from app.services.activity_templates import (  # noqa: E402
-    GAME_NAMES, GAMES,
+    GAME_NAMES, GAMES, SPECIAL_ACTIVITIES, SPECIAL_NAMES,
     build_game_activity, build_random_activity,
 )
 
@@ -339,7 +339,7 @@ def _random_offset_ms(body: ActivityBody) -> int | None:
 
 @router.get("/activity/templates")
 async def get_activity_templates() -> dict:
-    return {"games": GAME_NAMES}
+    return {"games": GAME_NAMES, "specials": SPECIAL_NAMES}
 
 
 @router.post("/activity")
@@ -348,7 +348,10 @@ async def set_activity(body: ActivityBody) -> dict:
     results: list[dict] = []
     for acc_id in body.account_ids:
         start_ms = _random_offset_ms(body)
-        if body.mode == "game":
+        if body.mode == "special":
+            special = SPECIAL_ACTIVITIES.get(body.game_name)
+            act = await build_game_activity(special, start_offset_ms=start_ms)
+        elif body.mode == "game":
             game = next((g for g in GAMES if g["name"] == body.game_name), None)
             act = await build_game_activity(game, start_offset_ms=start_ms)
         else:

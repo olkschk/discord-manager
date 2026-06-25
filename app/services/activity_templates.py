@@ -125,13 +125,6 @@ GAMES = [
         "state": ["Shuffle mode on", "Playing playlist", "Radio"],
     },
     {
-        "name": "Visual Studio Code",
-        "app_id": "1510667611937968340",
-        "large_text": "Visual Studio Code",
-        "details": ["Editing main.py", "Working on project", "Editing index.ts", "Debugging"],
-        "state": ["In workspace", "Git: main", "No folder open"],
-    },
-    {
         "name": "Red Dead Redemption 2",
         "app_id": "1510668195671838840",
         "large_text": "Red Dead Redemption 2",
@@ -151,13 +144,6 @@ GAMES = [
         "large_text": "YouTube Music",
         "details": ["Listening to music", "Watching a music video", "Auto-play radio"],
         "state": ["Shuffle on", "Playing playlist", "Liked Music"],
-    },
-    {
-        "name": "Azora",
-        "app_id": "1517238868942913599",
-        "large_text": "Azora",
-        "details": [],
-        "state": [],
     },
     {
         "name": "League of Legends",
@@ -311,5 +297,23 @@ async def build_random_activity(*, start_offset_ms: int | None = None) -> dict:
     return await build_game_activity(start_offset_ms=start_offset_ms)
 
 
+SPECIAL_ACTIVITIES = {
+    "Visual Studio Code": {
+        "name": "Visual Studio Code",
+        "app_id": "1510667611937968340",
+        "large_text": "Visual Studio Code",
+        "details": ["Editing main.py", "Working on project", "Editing index.ts", "Debugging"],
+        "state": ["In workspace", "Git: main", "No folder open"],
+    },
+    "Azora": {
+        "name": "Azora",
+        "app_id": "1517238868942913599",
+        "large_text": "Azora",
+        "details": ["Translating voice in real-time", "Setting up languages"],
+        "state": [],
+    },
+}
+
 # Human-readable labels for the UI
 GAME_NAMES = [g["name"] for g in GAMES]
+SPECIAL_NAMES = list(SPECIAL_ACTIVITIES.keys())
