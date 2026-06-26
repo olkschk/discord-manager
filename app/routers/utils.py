@@ -153,14 +153,23 @@ async def set_custom_identity(
             return {"ok": False, "error": "discord_patch_failed"}
 
         update: dict = {}
-        if body.username:
+        # Sync from Discord response (authoritative) + what was sent
+        if isinstance(out, dict):
+            if out.get("username"):
+                update["username"] = out["username"]
+            if out.get("global_name") is not None:
+                update["name"] = out["global_name"]
+            if out.get("avatar"):
+                update["avatar"] = out["avatar"]
+            if out.get("bio") is not None:
+                update["bio"] = out["bio"]
+        # Fallback to request body if response didn't include them
+        if "username" not in update and body.username:
             update["username"] = body.username
-        if body.global_name is not None:
+        if "name" not in update and body.global_name is not None:
             update["name"] = body.global_name
-        if body.bio is not None:
+        if "bio" not in update and body.bio is not None:
             update["bio"] = body.bio
-        if isinstance(out, dict) and out.get("avatar"):
-            update["avatar"] = out["avatar"]
         if update:
             await discords().update_one({"_id": ObjectId(body.account_id)}, {"$set": update})
 
