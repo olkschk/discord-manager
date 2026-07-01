@@ -261,6 +261,42 @@
           <button type="button" id="reactRunBtn" class="primary">React</button>
         </div>
       </div>
+
+      <!-- Reaction Presets -->
+      <div class="panel" style="margin-top:var(--sp-sm);">
+        <p class="panel__hint">Quick-react presets — appear as [1] [2] [3] next to each message in Chat.</p>
+        <div style="display:grid;gap:var(--sp-sm);">
+          {% for i in range(3) %}
+          <div style="border:1px solid var(--border-visible);border-radius:6px;padding:var(--sp-sm) var(--sp-md);">
+            <div style="display:flex;align-items:center;gap:var(--sp-sm);margin-bottom:var(--sp-xs);">
+              <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-secondary);">Preset {{ i+1 }}</span>
+              <span id="presetSavedBadge{{ i }}" hidden style="font-size:9px;padding:1px 6px;background:var(--surface-raised);color:var(--success);border-radius:10px;letter-spacing:.1em;text-transform:uppercase;font-family:var(--font-mono);">saved</span>
+            </div>
+            <div class="split">
+              <label>
+                <span>Emoji</span>
+                <input type="text" id="presetEmoji{{ i }}" placeholder="👍 or name:id" />
+              </label>
+              <label>
+                <span>Delay min (s)</span>
+                <input type="number" id="presetDelayMin{{ i }}" value="1" min="0" max="60" step="0.5" />
+              </label>
+              <label>
+                <span>Delay max (s)</span>
+                <input type="number" id="presetDelayMax{{ i }}" value="4" min="0" max="60" step="0.5" />
+              </label>
+            </div>
+            <div style="display:flex;align-items:center;gap:var(--sp-sm);margin-top:var(--sp-xs);">
+              <span id="presetAccSummary{{ i }}" style="font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);">0 accounts</span>
+              <button type="button" class="small" onclick="openPresetAccPicker({{ i }})">Pick accounts ↗</button>
+              <div style="flex:1;"></div>
+              <button type="button" class="small danger" onclick="clearPreset({{ i }})">Clear</button>
+              <button type="button" class="primary" onclick="savePreset({{ i }})">Save</button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
     </section>
 
     <!-- Join server -->
@@ -577,8 +613,22 @@ document.querySelectorAll(".utils-react-acc-check").forEach(cb => {
 });
 document.getElementById("utilsReactAccModalConfirm")?.addEventListener("click", () => {
   document.getElementById("utilsReactAccModal").hidden = true;
-  updateUtilsReactAccSummary();
-  renderUtilsReactCounts(); // re-clamp counts to new pool size
+  if (presetPickingIdx !== null) {
+    const idx = presetPickingIdx;
+    presetPickingIdx = null;
+    const ids = getUtilsReactCheckedIds();
+    if (!reactPresets[idx]) reactPresets[idx] = { emoji: "", accountIds: [], delayMin: 1, delayMax: 4 };
+    reactPresets[idx].accountIds = ids;
+    document.getElementById(`presetAccSummary${idx}`).textContent = `${ids.length} accounts selected`;
+    // Restore normal react checkbox state
+    document.querySelectorAll(".utils-react-acc-check").forEach(cb => {
+      cb.checked = _savedNormalReactIds.includes(cb.value);
+    });
+    updateUtilsReactAccSummary();
+  } else {
+    updateUtilsReactAccSummary();
+    renderUtilsReactCounts();
+  }
 });
 
 // Cancel queue
@@ -670,6 +720,80 @@ document.getElementById("reactRunBtn")?.addEventListener("click", async () => {
   submitBtn.disabled = false;
   setResult(out, queued > 0, `${queued} reactions queued (running in background)`);
 });
+
+// ── Reaction Presets ─────────────────────────────────────────────────────────
+const PRESETS_KEY = "reactPresets";
+const reactPresets = [null, null, null];
+let presetPickingIdx = null;
+let _savedNormalReactIds = [];
+
+function _loadPresetsFromStorage() {
+  try {
+    const raw = localStorage.getItem(PRESETS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    for (let i = 0; i < 3; i++) {
+      reactPresets[i] = parsed[i] || null;
+      _refreshPresetSlotUI(i);
+    }
+  } catch { /* ignore corrupt data */ }
+}
+
+function _savePresetsToStorage() {
+  localStorage.setItem(PRESETS_KEY, JSON.stringify(reactPresets));
+}
+
+function _refreshPresetSlotUI(idx) {
+  const preset = reactPresets[idx];
+  const badge = document.getElementById(`presetSavedBadge${idx}`);
+  const summary = document.getElementById(`presetAccSummary${idx}`);
+  if (preset) {
+    if (badge) badge.hidden = false;
+    if (summary) summary.textContent = `${preset.accountIds.length} accounts · ${preset.emoji || "?"}`;
+    const emojiEl = document.getElementById(`presetEmoji${idx}`);
+    if (emojiEl && !emojiEl.value) emojiEl.value = preset.emoji || "";
+    const minEl = document.getElementById(`presetDelayMin${idx}`);
+    if (minEl) minEl.value = preset.delayMin ?? 1;
+    const maxEl = document.getElementById(`presetDelayMax${idx}`);
+    if (maxEl) maxEl.value = preset.delayMax ?? 4;
+  } else {
+    if (badge) badge.hidden = true;
+    if (summary) summary.textContent = "0 accounts";
+  }
+}
+
+function openPresetAccPicker(idx) {
+  _savedNormalReactIds = getUtilsReactCheckedIds();
+  presetPickingIdx = idx;
+  const saved = new Set((reactPresets[idx]?.accountIds) || []);
+  document.querySelectorAll(".utils-react-acc-check").forEach(cb => {
+    cb.checked = saved.has(cb.value);
+  });
+  updateUtilsReactAccModalCount();
+  document.getElementById("utilsReactAccModal").hidden = false;
+}
+
+function savePreset(idx) {
+  const emoji = (document.getElementById(`presetEmoji${idx}`)?.value || "").trim();
+  if (!emoji) { alert("Enter an emoji first"); return; }
+  const accIds = reactPresets[idx]?.accountIds || [];
+  if (!accIds.length) { alert("Pick at least one account first"); return; }
+  const delayMin = parseFloat(document.getElementById(`presetDelayMin${idx}`)?.value) || 0;
+  const delayMax = parseFloat(document.getElementById(`presetDelayMax${idx}`)?.value) || 0;
+  reactPresets[idx] = { emoji, accountIds: accIds, delayMin, delayMax };
+  _savePresetsToStorage();
+  _refreshPresetSlotUI(idx);
+}
+
+function clearPreset(idx) {
+  reactPresets[idx] = null;
+  _savePresetsToStorage();
+  _refreshPresetSlotUI(idx);
+  const emojiEl = document.getElementById(`presetEmoji${idx}`);
+  if (emojiEl) emojiEl.value = "";
+}
+
+_loadPresetsFromStorage();
 
 // Join server
 document.getElementById("joinSelectAllBtn").addEventListener("click", () => {

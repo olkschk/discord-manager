@@ -545,6 +545,7 @@ function buildMsgEl(m) {
         <span class="msg__time">${escapeHtml(time)}</span>
         ${discordId ? `<button type="button" class="small msg__reply" data-id="${escapeHtml(discordId)}" style="padding:1px 5px;font-size:9px;">Reply</button>` : ""}
         ${discordId ? `<button type="button" class="small msg__react-btn" data-id="${escapeHtml(discordId)}" style="padding:1px 5px;font-size:9px;">React</button>` : ""}
+        ${discordId ? chatPresets.map((p, i) => p ? `<button type="button" class="small msg__preset-btn" data-id="${escapeHtml(discordId)}" data-preset="${i}" style="padding:1px 5px;font-size:9px;">[${i+1}]</button>` : "").join("") : ""}
       </header>
       ${replyBar}
       <p class="msg__text" style="margin:0;word-break:break-word;">${escapeHtml(m.text || "")}</p>${img}
@@ -1043,6 +1044,36 @@ updateDMBadge();
 setInterval(pollUnread, 30000);
 
 // ── Reaction modal ────────────────────────────────────────────────────────
+// ── Reaction presets (loaded from localStorage, set in Utils) ──────────────
+const _PRESETS_KEY = "reactPresets";
+function _loadChatPresets() {
+  try { return JSON.parse(localStorage.getItem(_PRESETS_KEY) || "null") || [null, null, null]; }
+  catch { return [null, null, null]; }
+}
+let chatPresets = _loadChatPresets();
+
+// Re-sync preset buttons when user saves a preset in Utils (cross-tab)
+window.addEventListener("storage", (e) => {
+  if (e.key !== _PRESETS_KEY) return;
+  chatPresets = _loadChatPresets();
+  // Update existing rendered messages: add/remove preset buttons
+  document.querySelectorAll("article[data-id]").forEach(article => {
+    const msgId = article.getAttribute("data-id");
+    const header = article.querySelector(".msg__head");
+    if (!header) return;
+    header.querySelectorAll(".msg__preset-btn").forEach(b => b.remove());
+    chatPresets.forEach((p, i) => {
+      if (!p) return;
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "small msg__preset-btn";
+      btn.dataset.id = msgId; btn.dataset.preset = i;
+      btn.style.cssText = "padding:1px 5px;font-size:9px;";
+      btn.textContent = `[${i+1}]`;
+      header.appendChild(btn);
+    });
+  });
+});
+
 let reactTargetMessageId = null;
 const reactEmojiCounts = new Map(); // emoji → count
 let reactCancelled = false;
@@ -1115,6 +1146,41 @@ function filterReactGroup(group) {
   });
   updateReactAccModalCount();
 }
+
+// Preset react buttons — event delegation
+document.getElementById("messages").addEventListener("click", async (e) => {
+  const btn = e.target.closest(".msg__preset-btn");
+  if (!btn) return;
+  const messageId = btn.dataset.id;
+  const presetIdx = parseInt(btn.dataset.preset);
+  const preset = chatPresets[presetIdx];
+  if (!preset) {
+    alert(`Preset ${presetIdx + 1} not configured. Go to Utils → Reaction Presets to set it up.`);
+    return;
+  }
+  const channel_id = currentTopic;
+  if (!channel_id) { alert("Open a channel first"); return; }
+
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = "…";
+
+  const r = await fetch("/api/chat/react-bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      account_ids: preset.accountIds,
+      channel_id,
+      message_id: messageId,
+      emoji: preset.emoji,
+      delay_min: preset.delayMin ?? 1,
+      delay_max: preset.delayMax ?? 4,
+    }),
+  });
+  const data = await r.json().catch(() => ({}));
+  btn.disabled = false;
+  btn.textContent = data.ok ? "✓" : "✗";
+  setTimeout(() => { btn.textContent = orig; }, 2000);
+});
 
 // Open react modal via event delegation
 document.getElementById("messages").addEventListener("click", (e) => {
