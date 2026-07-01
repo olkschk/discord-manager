@@ -279,37 +279,59 @@ def scheduled_messages():
     return _db()["scheduled_messages"]
 
 
-class ScheduleBody(BaseModel):
-    account_id: str
-    channel_id: str
-    content: str = Field(..., min_length=1, max_length=2000)
-    reply_to: str | None = None
-    scheduled_at: str  # ISO datetime string
-
-
 @router.post("/schedule")
 async def schedule_message(
-    body: ScheduleBody,
+    account_id: str = Form(...),
+    channel_id: str = Form(""),
+    channel_ids: str = Form(""),  # optional JSON array — schedules one doc per channel
+    content: str = Form(""),
+    reply_to: str | None = Form(None),
+    scheduled_at: str = Form(...),
+    file: UploadFile | None = File(None),
     user: str = Depends(require_login),
 ) -> dict:
-    """Save a message to be sent at `scheduled_at` (ISO UTC datetime)."""
+    """Save a message (optionally with one file) to be sent at `scheduled_at` (ISO UTC datetime)."""
     try:
-        ts = datetime.fromisoformat(body.scheduled_at.replace("Z", "+00:00"))
+        ts = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
     except ValueError:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid scheduled_at format (ISO 8601 required)")
     if ts <= datetime.now(timezone.utc):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "scheduled_at must be in the future")
-    res = await scheduled_messages().insert_one({
-        "owner": user,
-        "account_id": body.account_id,
-        "channel_id": body.channel_id,
-        "content": body.content,
-        "reply_to": body.reply_to,
-        "scheduled_at": ts,
-        "status": "pending",
-        "created_at": datetime.now(timezone.utc),
-    })
-    return {"id": str(res.inserted_id), "scheduled_at": ts.isoformat()}
+
+    channels = json.loads(channel_ids) if channel_ids else ([channel_id] if channel_id else [])
+    if not channels:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "channel_id or channel_ids required")
+
+    file_doc: dict | None = None
+    if file and file.filename:
+        blob = await file.read()
+        if len(blob) > MAX_FILE_BYTES:
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large (max 8 MB)")
+        import base64
+        file_doc = {
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "data_b64": base64.b64encode(blob).decode("ascii"),
+        }
+
+    if not content.strip() and not file_doc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Either content or a file is required")
+
+    ids: list[str] = []
+    for cid in channels:
+        res = await scheduled_messages().insert_one({
+            "owner": user,
+            "account_id": account_id,
+            "channel_id": cid,
+            "content": content,
+            "reply_to": reply_to,
+            "file": file_doc,
+            "scheduled_at": ts,
+            "status": "pending",
+            "created_at": datetime.now(timezone.utc),
+        })
+        ids.append(str(res.inserted_id))
+    return {"ids": ids, "id": ids[0], "scheduled_at": ts.isoformat(), "queued": len(ids)}
 
 
 @router.get("/scheduled")
@@ -321,6 +343,7 @@ async def list_scheduled(user: str = Depends(require_login)) -> list[dict]:
             "account_id": m.get("account_id"),
             "channel_id": m.get("channel_id"),
             "content": m.get("content", ""),
+            "has_file": bool(m.get("file")),
             "scheduled_at": m["scheduled_at"].isoformat() if m.get("scheduled_at") else None,
         })
     return out

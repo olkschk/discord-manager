@@ -276,7 +276,7 @@ async def _scheduler_cycle() -> None:
     from datetime import datetime, timezone
     from app.database import db as _db
     from app.services.account_helpers import load_account_token_and_proxy
-    from app.services.discord_api import send_message, trigger_typing
+    from app.services.discord_api import send_message, send_message_with_files, trigger_typing
 
     now = datetime.now(timezone.utc)
     coll = _db()["scheduled_messages"]
@@ -294,15 +294,25 @@ async def _scheduler_cycle() -> None:
             return
         _, token, proxy_url = resolved
 
-        content = task["content"]
+        content = task.get("content", "")
         typing_delay = max(1.5, min(8.0, len(content) * 0.07)) * random.uniform(0.8, 1.2)
         await trigger_typing(token, task["channel_id"], proxy_url=proxy_url)
         await asyncio.sleep(typing_delay)
 
-        msg = await send_message(
-            token, task["channel_id"], content,
-            reply_to=task.get("reply_to"), proxy_url=proxy_url,
-        )
+        file_doc = task.get("file")
+        if file_doc:
+            import base64
+            blob = base64.b64decode(file_doc["data_b64"])
+            msg = await send_message_with_files(
+                token, task["channel_id"], content,
+                [(file_doc.get("filename") or "file", blob, file_doc.get("content_type"))],
+                reply_to=task.get("reply_to"), proxy_url=proxy_url,
+            )
+        else:
+            msg = await send_message(
+                token, task["channel_id"], content,
+                reply_to=task.get("reply_to"), proxy_url=proxy_url,
+            )
         if msg:
             await coll.update_one({"_id": task["_id"]}, {"$set": {"status": "sent", "sent_at": now}})
             logger.info("scheduler: sent message %s to channel %s", task["_id"], task["channel_id"])

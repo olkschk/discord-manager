@@ -666,14 +666,19 @@ document.getElementById("sendForm").addEventListener("submit", async (e) => {
 
   // Scheduled?
   if (scheduleMode) {
-    const r = await fetch("/api/chat/schedule", {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ account_id: accountId, channel_id: currentTopic, content: text, reply_to: replyTo, scheduled_at: new Date(scheduleTime).toISOString() }),
-    });
-    const d = await r.json();
+    const fd = new FormData();
+    fd.append("account_id", accountId);
+    fd.append("channel_id", currentTopic);
+    fd.append("content", text);
+    if (replyTo) fd.append("reply_to", replyTo);
+    fd.append("scheduled_at", new Date(scheduleTime).toISOString());
+    if (file) fd.append("file", file, file.name);
+    const r = await fetch("/api/chat/schedule", { method: "POST", body: fd });
+    const d = await r.json().catch(() => ({}));
     if (r.ok) {
       out.className = "result ok"; out.textContent = `Scheduled for ${scheduleTime}`;
       document.getElementById("sendText").value = ""; document.getElementById("scheduleTime").value = "";
+      fileInput.value = ""; fileLabel.textContent = "Attach file";
       setReply(null); loadScheduled();
     } else { out.className = "result err"; out.textContent = d.detail || `Error ${r.status}`; }
     return;
@@ -785,7 +790,7 @@ async function loadScheduled() {
   if (!data.length) { el.innerHTML='<span style="color:var(--text-disabled);font-size:11px;text-transform:uppercase;letter-spacing:.15em;">None pending</span>'; return; }
   el.innerHTML = data.map(m => `
     <div style="background:var(--surface-raised);border:1px solid var(--border);border-radius:2px;padding:6px 8px;display:grid;gap:2px;">
-      <div style="color:var(--text-display);font-size:11px;">${escapeHtml(m.content.slice(0,60))}${m.content.length>60?"…":""}</div>
+      <div style="color:var(--text-display);font-size:11px;">${m.has_file ? "📎 " : ""}${escapeHtml(m.content.slice(0,60))}${m.content.length>60?"…":""}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <span style="color:var(--warning);font-size:10px;">${new Date(m.scheduled_at).toLocaleString()}</span>
         <button type="button" class="small danger sched-cancel" data-id="${m.id}" style="padding:2px 6px;font-size:9px;">Cancel</button>
@@ -1269,10 +1274,11 @@ document.querySelectorAll(".sched-quick").forEach(btn => {
   btn.addEventListener("click", async () => {
     const accountId = accountSelect.value;
     const text = document.getElementById("sendText").value.trim();
+    const file = fileInput.files[0] || null;
     const out = document.getElementById("sendResult");
 
     if (!accountId) { out.className = "result err"; out.textContent = "Select an account"; return; }
-    if (!text) { out.className = "result err"; out.textContent = "Write a message first"; return; }
+    if (!text && !file) { out.className = "result err"; out.textContent = "Write a message or attach a file"; return; }
     if (!currentTopic) { out.className = "result err"; out.textContent = "Open a topic first"; return; }
 
     const delaySec = parseInt(btn.dataset.sec);
@@ -1283,27 +1289,23 @@ document.querySelectorAll(".sched-quick").forEach(btn => {
     const channels = isDup ? [...dupSelected] : [currentTopic];
     if (!channels.length) { out.className = "result err"; out.textContent = "Select at least one channel"; return; }
 
-    let ok = 0;
-    for (const ch of channels) {
-      const resp = await fetch("/api/chat/schedule", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          account_id: accountId,
-          channel_id: ch,
-          content: text,
-          reply_to: replyTo,
-          scheduled_at: scheduledAt,
-        }),
-      });
-      if (resp.ok) ok++;
-    }
-    if (ok > 0) {
+    const fd = new FormData();
+    fd.append("account_id", accountId);
+    fd.append("channel_ids", JSON.stringify(channels));
+    fd.append("content", text);
+    if (replyTo) fd.append("reply_to", replyTo);
+    fd.append("scheduled_at", scheduledAt);
+    if (file) fd.append("file", file, file.name);
+
+    const resp = await fetch("/api/chat/schedule", { method: "POST", body: fd });
+    const d = await resp.json().catch(() => ({}));
+    if (resp.ok && d.queued) {
       out.className = "result ok";
-      out.textContent = `Scheduled ${ok} channel(s) in ${delaySec >= 60 ? (delaySec / 60) + "m" : delaySec + "s"}`;
+      out.textContent = `Scheduled ${d.queued} channel(s) in ${delaySec >= 60 ? (delaySec / 60) + "m" : delaySec + "s"}`;
+      fileInput.value = ""; fileLabel.textContent = "Attach file";
       loadScheduled();
     } else {
-      out.className = "result err"; out.textContent = "Failed to schedule";
+      out.className = "result err"; out.textContent = d.detail || "Failed to schedule";
     }
   });
 });
