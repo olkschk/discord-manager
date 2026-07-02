@@ -1159,7 +1159,8 @@ document.getElementById("messages").addEventListener("click", async (e) => {
   const messageId = btn.dataset.id;
   const presetIdx = parseInt(btn.dataset.preset);
   const preset = chatPresets[presetIdx];
-  if (!preset) {
+  const emojis = preset ? (preset.emojis || (preset.emoji ? [preset.emoji] : [])) : [];
+  if (!preset || !emojis.length) {
     alert(`Preset ${presetIdx + 1} not configured. Go to Utils → Reaction Presets to set it up.`);
     return;
   }
@@ -1169,21 +1170,21 @@ document.getElementById("messages").addEventListener("click", async (e) => {
   const orig = btn.textContent;
   btn.disabled = true; btn.textContent = "…";
 
-  const r = await fetch("/api/chat/react-bulk", {
+  const results = await Promise.all(emojis.map(emoji => fetch("/api/chat/react-bulk", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       account_ids: preset.accountIds,
       channel_id,
       message_id: messageId,
-      emoji: preset.emoji,
+      emoji,
       delay_min: preset.delayMin ?? 1,
       delay_max: preset.delayMax ?? 4,
     }),
-  });
-  const data = await r.json().catch(() => ({}));
+  }).then(r => r.json().catch(() => ({})))));
+
   btn.disabled = false;
-  btn.textContent = data.ok ? "✓" : "✗";
+  btn.textContent = results.every(d => d.ok) ? "✓" : "✗";
   setTimeout(() => { btn.textContent = orig; }, 2000);
 });
 

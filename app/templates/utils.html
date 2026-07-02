@@ -272,8 +272,7 @@
               <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-secondary);">Preset {{ i+1 }}</span>
               <span id="presetSavedBadge{{ i }}" hidden style="font-size:9px;padding:1px 6px;background:var(--surface-raised);color:var(--success);border-radius:10px;letter-spacing:.1em;text-transform:uppercase;font-family:var(--font-mono);">saved</span>
             </div>
-            <div class="label" style="margin-bottom:4px;">Emoji</div>
-            <input type="hidden" id="presetEmoji{{ i }}" />
+            <div class="label" style="margin-bottom:4px;">Emoji <span style="color:var(--text-secondary);font-size:10px;">— pick one or more</span></div>
             <div style="display:flex; gap:var(--sp-sm); flex-wrap:wrap; margin-bottom:4px;" id="presetEmojiPicker{{ i }}"></div>
             <div class="split" style="margin-top:var(--sp-sm);">
               <label>
@@ -616,7 +615,7 @@ document.getElementById("utilsReactAccModalConfirm")?.addEventListener("click", 
     const idx = presetPickingIdx;
     presetPickingIdx = null;
     const ids = getUtilsReactCheckedIds();
-    if (!reactPresets[idx]) reactPresets[idx] = { emoji: "", accountIds: [], delayMin: 1, delayMax: 4 };
+    if (!reactPresets[idx]) reactPresets[idx] = { emojis: [], accountIds: [], delayMin: 1, delayMax: 4 };
     reactPresets[idx].accountIds = ids;
     document.getElementById(`presetAccSummary${idx}`).textContent = `${ids.length} accounts selected`;
     // Restore normal react checkbox state
@@ -750,6 +749,9 @@ const PRESET_EMOJI_LIST = [
   { emoji: "woah:1511791974900826253", name: "woah" },
 ];
 
+// Per-preset multi-select state: idx -> Set of selected emoji strings
+const presetEmojiSelections = [new Set(), new Set(), new Set()];
+
 function _renderPresetEmojiPicker(idx) {
   const container = document.getElementById(`presetEmojiPicker${idx}`);
   if (!container) return;
@@ -762,9 +764,9 @@ function _renderPresetEmojiPicker(idx) {
   container.querySelectorAll(".preset-emoji-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const emoji = btn.dataset.emoji;
-      document.getElementById(`presetEmoji${idx}`).value = emoji;
-      container.querySelectorAll(".preset-emoji-btn").forEach(b => b.classList.remove("selected"));
-      btn.classList.add("selected");
+      const sel = presetEmojiSelections[idx];
+      if (sel.has(emoji)) { sel.delete(emoji); btn.classList.remove("selected"); }
+      else { sel.add(emoji); btn.classList.add("selected"); }
     });
   });
 }
@@ -792,13 +794,14 @@ function _refreshPresetSlotUI(idx) {
   const summary = document.getElementById(`presetAccSummary${idx}`);
   const picker = document.getElementById(`presetEmojiPicker${idx}`);
   if (preset) {
+    const emojis = preset.emojis || (preset.emoji ? [preset.emoji] : []); // back-compat with old single-emoji presets
     if (badge) badge.hidden = false;
-    if (summary) summary.textContent = `${preset.accountIds.length} accounts · ${preset.emoji ? renderEmojiDisplay(preset.emoji, 14) : "?"}`;
-    const emojiEl = document.getElementById(`presetEmoji${idx}`);
-    if (emojiEl && !emojiEl.value) emojiEl.value = preset.emoji || "";
-    if (picker && preset.emoji) {
+    const emojiPreview = emojis.length ? emojis.map(e => renderEmojiDisplay(e, 14)).join(" ") : "?";
+    if (summary) summary.innerHTML = `${preset.accountIds.length} accounts · ${emojiPreview}`;
+    presetEmojiSelections[idx] = new Set(emojis);
+    if (picker) {
       picker.querySelectorAll(".preset-emoji-btn").forEach(b => {
-        b.classList.toggle("selected", b.dataset.emoji === preset.emoji);
+        b.classList.toggle("selected", presetEmojiSelections[idx].has(b.dataset.emoji));
       });
     }
     const minEl = document.getElementById(`presetDelayMin${idx}`);
@@ -823,13 +826,13 @@ function openPresetAccPicker(idx) {
 }
 
 function savePreset(idx) {
-  const emoji = (document.getElementById(`presetEmoji${idx}`)?.value || "").trim();
-  if (!emoji) { alert("Enter an emoji first"); return; }
+  const emojis = [...presetEmojiSelections[idx]];
+  if (!emojis.length) { alert("Pick at least one emoji first"); return; }
   const accIds = reactPresets[idx]?.accountIds || [];
   if (!accIds.length) { alert("Pick at least one account first"); return; }
   const delayMin = parseFloat(document.getElementById(`presetDelayMin${idx}`)?.value) || 0;
   const delayMax = parseFloat(document.getElementById(`presetDelayMax${idx}`)?.value) || 0;
-  reactPresets[idx] = { emoji, accountIds: accIds, delayMin, delayMax };
+  reactPresets[idx] = { emojis, accountIds: accIds, delayMin, delayMax };
   _savePresetsToStorage();
   _refreshPresetSlotUI(idx);
 }
@@ -837,9 +840,8 @@ function savePreset(idx) {
 function clearPreset(idx) {
   reactPresets[idx] = null;
   _savePresetsToStorage();
+  presetEmojiSelections[idx] = new Set();
   _refreshPresetSlotUI(idx);
-  const emojiEl = document.getElementById(`presetEmoji${idx}`);
-  if (emojiEl) emojiEl.value = "";
   document.querySelectorAll(`#presetEmojiPicker${idx} .preset-emoji-btn`).forEach(b => b.classList.remove("selected"));
 }
 
