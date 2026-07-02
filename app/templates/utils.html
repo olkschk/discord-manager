@@ -272,11 +272,10 @@
               <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-secondary);">Preset {{ i+1 }}</span>
               <span id="presetSavedBadge{{ i }}" hidden style="font-size:9px;padding:1px 6px;background:var(--surface-raised);color:var(--success);border-radius:10px;letter-spacing:.1em;text-transform:uppercase;font-family:var(--font-mono);">saved</span>
             </div>
-            <div class="split">
-              <label>
-                <span>Emoji</span>
-                <input type="text" id="presetEmoji{{ i }}" placeholder="👍 or name:id" />
-              </label>
+            <div class="label" style="margin-bottom:4px;">Emoji</div>
+            <input type="hidden" id="presetEmoji{{ i }}" />
+            <div style="display:flex; gap:var(--sp-sm); flex-wrap:wrap; margin-bottom:4px;" id="presetEmojiPicker{{ i }}"></div>
+            <div class="split" style="margin-top:var(--sp-sm);">
               <label>
                 <span>Delay min (s)</span>
                 <input type="number" id="presetDelayMin{{ i }}" value="1" min="0" max="60" step="0.5" />
@@ -727,6 +726,50 @@ const reactPresets = [null, null, null];
 let presetPickingIdx = null;
 let _savedNormalReactIds = [];
 
+// Same emoji set as the main Reactions picker above (standard + custom server emojis)
+const PRESET_EMOJI_LIST = [
+  { emoji: "✅" }, { emoji: "❤️" }, { emoji: "🔥" }, { emoji: "👍" }, { emoji: "😂" },
+  { emoji: "🚀" }, { emoji: "💯" }, { emoji: "👀" }, { emoji: "🤝" }, { emoji: "⚡" },
+  { emoji: "Panik:1511791533249269830", name: "Panik" },
+  { emoji: "peepostonks:1511791627688087672", name: "peepostonks" },
+  { emoji: "poocoin:1511791726405222604", name: "poocoin" },
+  { emoji: "KEKW:1511792141528076369", name: "KEKW" },
+  { emoji: "PepeSmoke:1511792344255434782", name: "PepeSmoke" },
+  { emoji: "PepegaCredit:1511792271455031468", name: "PepegaCredit" },
+  { emoji: "boohoo:1511792167524503652", name: "boohoo" },
+  { emoji: "dwhaleemoji:1511791667198300190", name: "dwhaleemoji" },
+  { emoji: "gays:1511792114420420628", name: "gays" },
+  { emoji: "hodl:1511791698450186421", name: "hodl" },
+  { emoji: "notstonks:1511791754741813381", name: "notstonks" },
+  { emoji: "peepoSignedSimp:1511792288286773271", name: "peepoSignedSimp" },
+  { emoji: "peeponotstonks:1511791582200987710", name: "peeponotstonks" },
+  { emoji: "pepecrypto:1511791554149355660", name: "pepecrypto" },
+  { emoji: "pepecrypto:1511791796701757500", name: "pepecrypto2" },
+  { emoji: "pousob:1511791607568142408", name: "pousob" },
+  { emoji: "shrug:1511792079351582780", name: "shrug" },
+  { emoji: "woah:1511791974900826253", name: "woah" },
+];
+
+function _renderPresetEmojiPicker(idx) {
+  const container = document.getElementById(`presetEmojiPicker${idx}`);
+  if (!container) return;
+  container.innerHTML = PRESET_EMOJI_LIST.map(e => {
+    const inner = e.name
+      ? `<img src="https://cdn.discordapp.com/emojis/${e.emoji.split(":").pop()}.webp?size=32" title="${e.name}" style="width:20px;height:20px;vertical-align:middle;">`
+      : e.emoji;
+    return `<button type="button" class="emoji-btn preset-emoji-btn" data-preset="${idx}" data-emoji="${e.emoji}">${inner}</button>`;
+  }).join("");
+  container.querySelectorAll(".preset-emoji-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const emoji = btn.dataset.emoji;
+      document.getElementById(`presetEmoji${idx}`).value = emoji;
+      container.querySelectorAll(".preset-emoji-btn").forEach(b => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+  });
+}
+for (let i = 0; i < 3; i++) _renderPresetEmojiPicker(i);
+
 function _loadPresetsFromStorage() {
   try {
     const raw = localStorage.getItem(PRESETS_KEY);
@@ -747,11 +790,17 @@ function _refreshPresetSlotUI(idx) {
   const preset = reactPresets[idx];
   const badge = document.getElementById(`presetSavedBadge${idx}`);
   const summary = document.getElementById(`presetAccSummary${idx}`);
+  const picker = document.getElementById(`presetEmojiPicker${idx}`);
   if (preset) {
     if (badge) badge.hidden = false;
-    if (summary) summary.textContent = `${preset.accountIds.length} accounts · ${preset.emoji || "?"}`;
+    if (summary) summary.textContent = `${preset.accountIds.length} accounts · ${preset.emoji ? renderEmojiDisplay(preset.emoji, 14) : "?"}`;
     const emojiEl = document.getElementById(`presetEmoji${idx}`);
     if (emojiEl && !emojiEl.value) emojiEl.value = preset.emoji || "";
+    if (picker && preset.emoji) {
+      picker.querySelectorAll(".preset-emoji-btn").forEach(b => {
+        b.classList.toggle("selected", b.dataset.emoji === preset.emoji);
+      });
+    }
     const minEl = document.getElementById(`presetDelayMin${idx}`);
     if (minEl) minEl.value = preset.delayMin ?? 1;
     const maxEl = document.getElementById(`presetDelayMax${idx}`);
@@ -791,6 +840,7 @@ function clearPreset(idx) {
   _refreshPresetSlotUI(idx);
   const emojiEl = document.getElementById(`presetEmoji${idx}`);
   if (emojiEl) emojiEl.value = "";
+  document.querySelectorAll(`#presetEmojiPicker${idx} .preset-emoji-btn`).forEach(b => b.classList.remove("selected"));
 }
 
 _loadPresetsFromStorage();
