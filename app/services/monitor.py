@@ -273,7 +273,7 @@ async def _dm_loop() -> None:
 # ── Scheduled message sender ─────────────────────────────────────────────────
 async def _scheduler_cycle() -> None:
     import random
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
     from app.database import db as _db
     from app.services.account_helpers import load_account_token_and_proxy
     from app.services.discord_api import send_message, send_message_with_files, trigger_typing
@@ -316,6 +316,24 @@ async def _scheduler_cycle() -> None:
         if msg:
             await coll.update_one({"_id": task["_id"]}, {"$set": {"status": "sent", "sent_at": now}})
             logger.info("scheduler: sent message %s to channel %s", task["_id"], task["channel_id"])
+
+            linked = task.get("linked_reply")
+            if linked and msg.get("id"):
+                reply_delay = random.uniform(60, 180)  # 1-3 minutes
+                await coll.insert_one({
+                    "owner": task.get("owner"),
+                    "account_id": linked["account_id"],
+                    "channel_id": task["channel_id"],
+                    "content": linked["content"],
+                    "reply_to": msg["id"],
+                    "file": None,
+                    "scheduled_at": now + timedelta(seconds=reply_delay),
+                    "status": "pending",
+                    "created_at": now,
+                })
+                logger.info(
+                    "scheduler: linked reply for %s scheduled in %.0fs", task["_id"], reply_delay
+                )
         else:
             await coll.update_one({"_id": task["_id"]}, {"$set": {"status": "failed"}})
             logger.warning("scheduler: failed to send message %s", task["_id"])

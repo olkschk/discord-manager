@@ -338,6 +338,7 @@ async def schedule_message(
 async def list_scheduled(user: str = Depends(require_login)) -> list[dict]:
     out: list[dict] = []
     async for m in scheduled_messages().find({"owner": user, "status": "pending"}).sort("scheduled_at", 1):
+        linked = m.get("linked_reply")
         out.append({
             "id": str(m["_id"]),
             "account_id": m.get("account_id"),
@@ -345,8 +346,53 @@ async def list_scheduled(user: str = Depends(require_login)) -> list[dict]:
             "content": m.get("content", ""),
             "has_file": bool(m.get("file")),
             "scheduled_at": m["scheduled_at"].isoformat() if m.get("scheduled_at") else None,
+            "linked_reply": {"account_id": linked["account_id"], "content": linked["content"]} if linked else None,
         })
     return out
+
+
+class LinkReplyBody(BaseModel):
+    account_id: str
+    content: str = Field(..., min_length=1, max_length=2000)
+
+
+@router.post("/scheduled/{msg_id}/reply")
+async def link_scheduled_reply(
+    msg_id: str,
+    body: LinkReplyBody,
+    user: str = Depends(require_login),
+) -> dict:
+    """Attach a prepared reply to a not-yet-sent scheduled message.
+
+    Once the scheduler actually sends the original message, it uses the
+    real Discord message id to schedule this reply with a random 1-3 min
+    delay (the id doesn't exist until the original message goes out).
+    """
+    if not ObjectId.is_valid(msg_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid id")
+    res = await scheduled_messages().update_one(
+        {"_id": ObjectId(msg_id), "owner": user, "status": "pending"},
+        {"$set": {"linked_reply": {"account_id": body.account_id, "content": body.content}}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found or already sent")
+    return {"ok": True}
+
+
+@router.delete("/scheduled/{msg_id}/reply")
+async def unlink_scheduled_reply(
+    msg_id: str,
+    user: str = Depends(require_login),
+) -> dict:
+    if not ObjectId.is_valid(msg_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid id")
+    res = await scheduled_messages().update_one(
+        {"_id": ObjectId(msg_id), "owner": user, "status": "pending"},
+        {"$unset": {"linked_reply": ""}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found or already sent")
+    return {"ok": True}
 
 
 @router.delete("/scheduled/{msg_id}")

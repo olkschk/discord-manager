@@ -344,6 +344,38 @@
   </div>
 </div>
 
+<!-- Schedule Reply modal — attach a prepared reply to a not-yet-sent scheduled message -->
+<div id="schedReplyModal" class="modal" hidden>
+  <div class="modal__panel" style="max-width:480px;">
+    <header class="modal__head">
+      <h3 class="panel__title">Reply when sent</h3>
+      <button type="button" class="link" id="schedReplyModalClose">Close ×</button>
+    </header>
+    <div class="modal__body" style="gap:var(--sp-md);">
+      <label>
+        <span>Account</span>
+        <select id="schedReplyAccount">
+          <option value="">Select account…</option>
+          {% for a in accounts %}
+          <option value="{{ a.id }}">{{ a.name or a.username }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Message</span>
+        <textarea id="schedReplyText" rows="3" placeholder="Reply text…" style="resize:vertical;"></textarea>
+      </label>
+      <p style="font-family:var(--font-mono);font-size:10px;color:var(--text-secondary);">
+        Fires as a reply 1–3 minutes after the scheduled message above actually sends.
+      </p>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <output id="schedReplyResult" class="result"></output>
+        <button type="button" id="schedReplySubmit" class="primary">Save reply</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 document.querySelectorAll(".chat-subtab").forEach(btn => {
@@ -791,15 +823,28 @@ async function loadScheduled() {
   el.innerHTML = data.map(m => `
     <div style="background:var(--surface-raised);border:1px solid var(--border);border-radius:2px;padding:6px 8px;display:grid;gap:2px;">
       <div style="color:var(--text-display);font-size:11px;">${m.has_file ? "📎 " : ""}${escapeHtml(m.content.slice(0,60))}${m.content.length>60?"…":""}</div>
-      <div style="display:flex;justify-content:space-between;align-items:center;">
+      ${m.linked_reply ? `<div style="color:var(--success);font-size:10px;">↳ reply queued: ${escapeHtml(m.linked_reply.content.slice(0,40))}${m.linked_reply.content.length>40?"…":""}</div>` : ""}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;">
         <span style="color:var(--warning);font-size:10px;">${new Date(m.scheduled_at).toLocaleString()}</span>
-        <button type="button" class="small danger sched-cancel" data-id="${m.id}" style="padding:2px 6px;font-size:9px;">Cancel</button>
+        <div style="display:flex;gap:4px;">
+          ${m.linked_reply
+            ? `<button type="button" class="small danger sched-unlink-reply" data-id="${m.id}" style="padding:2px 6px;font-size:9px;">Remove reply</button>`
+            : `<button type="button" class="small sched-add-reply" data-id="${m.id}" style="padding:2px 6px;font-size:9px;">+ Reply</button>`}
+          <button type="button" class="small danger sched-cancel" data-id="${m.id}" style="padding:2px 6px;font-size:9px;">Cancel</button>
+        </div>
       </div>
     </div>
   `).join("");
   el.querySelectorAll(".sched-cancel").forEach(b => b.addEventListener("click", async () => {
     await fetch(`/api/chat/scheduled/${b.dataset.id}`, {method:"DELETE"});
     loadScheduled();
+  }));
+  el.querySelectorAll(".sched-unlink-reply").forEach(b => b.addEventListener("click", async () => {
+    await fetch(`/api/chat/scheduled/${b.dataset.id}/reply`, {method:"DELETE"});
+    loadScheduled();
+  }));
+  el.querySelectorAll(".sched-add-reply").forEach(b => b.addEventListener("click", () => {
+    openSchedReplyModal(b.dataset.id);
   }));
 }
 document.getElementById("refreshScheduled").addEventListener("click", loadScheduled);
@@ -1186,6 +1231,51 @@ document.getElementById("messages").addEventListener("click", async (e) => {
   btn.disabled = false;
   btn.textContent = results.every(d => d.ok) ? "✓" : "✗";
   setTimeout(() => { btn.textContent = orig; }, 2000);
+});
+
+// Schedule Reply — attach a prepared reply to a not-yet-sent scheduled message
+let schedReplyTargetId = null;
+function openSchedReplyModal(scheduledMsgId) {
+  schedReplyTargetId = scheduledMsgId;
+  document.getElementById("schedReplyAccount").value = "";
+  document.getElementById("schedReplyText").value = "";
+  document.getElementById("schedReplyResult").textContent = "";
+  document.getElementById("schedReplyResult").className = "result";
+  document.getElementById("schedReplyModal").hidden = false;
+}
+document.getElementById("schedReplyModalClose").addEventListener("click", () => {
+  document.getElementById("schedReplyModal").hidden = true;
+});
+document.getElementById("schedReplyModal").addEventListener("click", (e) => {
+  if (e.target === document.getElementById("schedReplyModal"))
+    document.getElementById("schedReplyModal").hidden = true;
+});
+document.getElementById("schedReplySubmit").addEventListener("click", async () => {
+  const out = document.getElementById("schedReplyResult");
+  const accountId = document.getElementById("schedReplyAccount").value;
+  const text = document.getElementById("schedReplyText").value.trim();
+  if (!accountId) { out.className = "result err"; out.textContent = "Select an account"; return; }
+  if (!text) { out.className = "result err"; out.textContent = "Write a message"; return; }
+  if (!schedReplyTargetId) { out.className = "result err"; out.textContent = "No target scheduled message"; return; }
+
+  const submitBtn = document.getElementById("schedReplySubmit");
+  submitBtn.disabled = true;
+  out.className = "result"; out.textContent = "Saving…";
+
+  const r = await fetch(`/api/chat/scheduled/${schedReplyTargetId}/reply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ account_id: accountId, content: text }),
+  });
+  const d = await r.json().catch(() => ({}));
+  submitBtn.disabled = false;
+  if (r.ok) {
+    out.className = "result ok"; out.textContent = "Reply queued";
+    loadScheduled();
+    setTimeout(() => { document.getElementById("schedReplyModal").hidden = true; }, 700);
+  } else {
+    out.className = "result err"; out.textContent = d.detail || `Error ${r.status}`;
+  }
 });
 
 // Open react modal via event delegation
